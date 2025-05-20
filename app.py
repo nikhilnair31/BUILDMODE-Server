@@ -6,6 +6,7 @@ import base64
 import logging
 import tempfile
 import datetime
+import warnings
 import traceback
 from functools import wraps
 from dotenv import load_dotenv
@@ -38,14 +39,22 @@ from flask import (
 
 load_dotenv()
 
+warnings.filterwarnings("ignore", category=UserWarning)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 MIA_DB_NAME = os.getenv("MIA_DB_NAME")
 MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
 
 UPLOAD_FOLDER = './uploads'
+ALLOWED_USER_AGENTS = [
+    "YourAndroidApp/1.0",     # Replace with your app’s user-agent
+    "python-requests",        # Allow during dev/testing
+    "PostmanRuntime",         # Optional: for Postman testing
+]
 IMAGE_PREPROCESS_SYSTEM_PROMPT = """
     Extract a long and comprehensive list of keywords to describe the image provided. These keywords will be used for semantic search eventually. Extract things like themes, dominant/accent colors, moods along with more descriptive terms. If possible determine the app the screenshot was taken in as well. Ignore phone status information. Only output as shown below
     <tags>
@@ -103,6 +112,21 @@ def token_required(f):
 
         return f(user, *args, **kwargs)
     return wrapper
+
+@app.before_request
+def restrict_headers():
+    user_agent = request.headers.get("User-Agent", "")
+    api_key = request.headers.get("X-App-Key", None)
+    # logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
+
+    # Allow during development
+    if "python" in user_agent.lower() or "postman" in user_agent.lower():
+        return
+
+    # Require custom header (future Android use)
+    if not api_key or api_key != APP_SECRET_KEY:
+        print(f"Rejected request with UA: {user_agent}, API key: {api_key}")
+        abort(403, description="Forbidden: Invalid or missing headers.")
 
 @app.route('/hello', methods=['GET'])
 @limiter.limit("1 per second")
