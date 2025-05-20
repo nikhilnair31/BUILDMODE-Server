@@ -29,6 +29,10 @@
     \q
     ```
 
+### Backup
+
+- Create script `sudo nano /opt/pg_backup.sh`
+
 ### Control
 - Open db with `psql -U your_db_user -d your_db_name`
 
@@ -45,16 +49,46 @@
 - Install these packages `pip install sqlalchemy psycopg2-binary pgvector werkzeug pillow google-genai python-dotenv flask` or from `requirements.txt`
 
 ## Service
-- Run this command and copy the info in the service file
-    - `sudo nano /etc/systemd/system/mia2.service`
-- Run these commands to control the service
-    - `sudo systemctl daemon-reexec`
-    - `sudo systemctl daemon-reload`
-    - `sudo systemctl enable mia2`
-    - `sudo systemctl start mia2`
-    - `sudo systemctl stop mia2`
-    - `sudo systemctl restart mia2`
-    - `journalctl -u mia2.service -f`
+
+### MIA2 Setup
+
+- Create a systemd Service with `sudo nano /etc/systemd/system/mia2.service`
+- Enable and Start the Service
+    ```bash
+    sudo systemctl daemon-reexec
+    sudo systemctl daemon-reload
+    sudo systemctl enable mia2.service
+    sudo systemctl start mia2.service
+    sudo systemctl restart mia2.service
+    ```
+- Check Status and Logs
+    ```bash
+    sudo systemctl status mia2
+    journalctl -u mia2.service -f
+    ```
+
+### Watchdog Setup
+
+- Place the Script
+    ```bash
+    sudo mkdir -p /opt/flask_watchdog
+    sudo cp watch_flask_restart.py /opt/flask_watchdog/
+    sudo chmod +x /opt/flask_watchdog/watch_flask_restart.py
+    ```
+- Create a systemd Service with `sudo nano /etc/systemd/system/flask-watchdog.service`
+- Enable and Start the Service
+    ```bash
+    sudo systemctl daemon-reexec
+    sudo systemctl daemon-reload
+    sudo systemctl enable flask-watchdog.service
+    sudo systemctl start flask-watchdog.service
+    ```
+- Check Status and Logs
+    ```bash
+    sudo systemctl status flask-watchdog
+    tail -f /var/log/flask_watchdog.log
+    journalctl -u flask-watchdog.service
+    ```
 
 ## Reverse Proxy
 
@@ -82,12 +116,11 @@
 - Reload with `sudo systemctl reload nginx`
 
 ### HTTPS Setup
-- `sudo certbot --nginx -d mia2.xyz -d www.mia2.xyz`
+- Run this `sudo certbot --nginx -d mia2.xyz -d www.mia2.xyz`
 - Check for cron job for auto reneew SSL cert with `sudo certbot renew --dry-run`
 
 ## TO-DO
 - [ ] Add systemd service and nginx config contents into files
-- [ ] Add server code to GitHub
 - [ ] Add better docs and README
 - [ ] Look into refresh tokens
 - [ ] Create app logo
@@ -100,6 +133,9 @@
 - [ ] Update extension to allow for custom shortcuts
 - [ ] Update extension to save data on shortcut
 - [ ] Update extension page to show most recent images by default
+- [x] Added db backups
+- [x] Added watchdog script and service
+- [x] Add server code to GitHub
 - [x] Update Android to allow zoom for image opened
 - [x] Update Android to make all calls with authorization token
 - [x] Update Android to allow user logout
