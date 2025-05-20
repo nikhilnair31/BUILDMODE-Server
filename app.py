@@ -1,0 +1,418 @@
+import os
+import jwt
+import time
+import uuid
+import base64
+import logging
+import tempfile
+import datetime
+import traceback
+from functools import wraps
+from dotenv import load_dotenv
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text, create_engine
+from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
+from playwright.sync_api import sync_playwright
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from pre_process import (
+    preprocess_image
+)
+from ai import (
+    call_llm_api,
+    call_vec_api
+)
+from models import (
+    Base,
+    DataEntry,
+    User
+)
+from flask import (
+    Flask, 
+    request, 
+    jsonify,
+    abort,
+    send_from_directory
+)
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+MIA_DB_NAME = os.getenv("MIA_DB_NAME")
+MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
+
+UPLOAD_FOLDER = './uploads'
+IMAGE_PREPROCESS_SYSTEM_PROMPT = """
+    Extract a long and comprehensive list of keywords to describe the image provided. These keywords will be used for semantic search eventually. Extract things like themes, dominant/accent colors, moods along with more descriptive terms. If possible determine the app the screenshot was taken in as well. Ignore phone status information. Only output as shown below
+    <tags>
+    keyword1, keyword2, ...
+    </tags>
+"""
+ENGINE_URL = f'postgresql://postgres:{MIA_DB_PASSWORD}@localhost/{MIA_DB_NAME}'
+logger.info(f"Connecting to {ENGINE_URL}\n")
+
+app = Flask(__name__)
+limiter = Limiter(get_remote_address, app=app, default_limits=["100 per day", "30 per hour"])
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+engine = create_engine(ENGINE_URL)
+Session = sessionmaker(bind=engine)
+
+# Base.metadata.drop_all(bind=engine)
+Base.metadata.create_all(bind=engine)
+
+def get_ip():
+    # logger.info(f"request.headers: {dict(request.headers)}\n")
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
+    logger.info(f"Detected IP: {ip}")
+    return ip
+
+def token_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({'message': 'Token missing'}), 401
+        
+        try:
+            data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            logger.info(f"Decoded token payload: {data}")
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Invalid token'}), 401
+        except Exception as e:
+            logger.error(f"Unexpected error decoding token: {e}")
+            return jsonify({'message': 'Token error'}), 500
+
+        session = Session()
+        try:
+            user = session.query(User).filter_by(id=data['user_id']).first()
+            logger.info(f"user: {user}")
+            if not user:
+                logger.error(f"User ID {data['user_id']} not found in database.")
+                return jsonify({'message': 'User not found'}), 401
+        finally:
+            session.close()
+
+        return f(user, *args, **kwargs)
+    return wrapper
+
+@app.route('/hello', methods=['GET'])
+@limiter.limit("1 per second")
+def hello():
+    log_text = f"Received hello request from {get_ip()}\n"
+    logger.info(log_text)
+    return jsonify({"message": log_text})
+
+@app.route('/register', methods=['POST'])
+@limiter.limit("1 per second")
+def register():
+    data = request.get_json()
+    
+    session = Session()
+    if session.query(User).filter_by(username=data['username']).first():
+        logger.error(f"User {data['username']} already exists.\n")
+        return jsonify({'message': 'Username already exists'}), 400
+
+    new_user = User(
+        username=data['username'],
+        created_at=int(time.time()),
+        updated_at=int(time.time())
+    )
+    new_user.set_password(data['password'])
+
+    session.add(new_user)
+    session.commit()
+
+    return jsonify({"status": "success", "message": "User registered successfully."}), 200
+
+@app.route('/login', methods=['POST'])
+@limiter.limit("1 per second")
+def login():
+    data = request.get_json()
+
+    session = Session()
+    user = session.query(User).filter_by(username=data['username']).first()
+    if not user or not user.check_password(data['password']):
+        logger.error(f"Invalid credentials for user {data['username']}.\n")
+        return jsonify({'message': 'Invalid credentials'}), 401
+
+    token = jwt.encode(
+        {
+            'user_id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+        }, 
+        JWT_SECRET_KEY, 
+        algorithm='HS256'
+    )
+    
+    return jsonify({'token': token})
+
+@app.route('/update-username', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def update_username(current_user):
+    data = request.get_json()
+
+    session = Session()
+    try:
+        if session.query(User).filter_by(username=data['new_username']).first():
+            return jsonify({'message': 'Username already taken'}), 400
+
+        # Re-attach or re-fetch user in this session
+        user = session.query(User).get(current_user.id)
+        user.username = data['new_username']
+        session.commit()
+    finally:
+        session.close()
+    
+    return jsonify({'message': 'Username updated'}), 200
+
+@app.route('/upload/image', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def upload_image(current_user):
+    try:
+        logger.info("\nReceived request to upload image\n")
+
+        file = request.files['image']
+        if not file:
+            return jsonify({'status': 'error', 'message': 'No image provided.'}), 400
+
+        # Check if the user exists
+        session = Session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            logger.error(f"User {user.username} not found.\n")
+            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+
+        ext = os.path.splitext(file.filename)[1]
+        logger.info(f"Recived filename: {file.filename}")
+        # Save the original temporarily
+        temp_filename  = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+        file.save(temp_path)
+        # Downscale and save final image
+        processed_path = preprocess_image(temp_path)
+        # Final filename
+        final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+        # Move temp to final location
+        os.rename(processed_path, final_filepath)
+        logger.info(f"Saved processed image to: {final_filepath}\n")
+
+        # Convert image to base64
+        IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+
+        # Send to OpenAI for processing
+        content = call_llm_api(
+            sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
+            image_b64 = IMAGE_BASE64
+        )
+
+        # Create embedding
+        embedding = call_vec_api(content)
+
+        # Save to database
+        session = Session()
+        entry = DataEntry(
+            username=user.username,
+            imagepath=final_filepath, 
+            posturl="-",
+            response=content, 
+            embedding=embedding,
+            timestamp=int(time.time())
+        )
+        session.add(entry)
+        session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'})
+    
+    except Exception as e:
+        logger.error("ERROR:", str(e))
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/upload/url', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def upload_url(current_user):
+    try:
+        logger.info("\nReceived request to upload url\n")
+
+        url = request.form['url']
+
+        # Check if the user exists
+        session = Session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            logger.error(f"User {user.username} not found.\n")
+            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+        
+        logger.info(f"Received from {user.username} a url: {url}\n")
+
+        def screenshot_url(url, path="screenshot.png", wait_seconds=3):
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)  # 👈 headless=False to seem real
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",  # 👈 pretend to be Chrome
+                    viewport={'width': 1280, 'height': 800},  # 👈 normal screen size
+                    locale='en-US',
+                    java_script_enabled=True,
+                    timezone_id='America/New_York',
+                )
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+                    // Remove modal popups (non-cookie)
+                    setInterval(() => {
+                        const modals = document.querySelectorAll('div[role="dialog"], .popup, .modal, .overlay');
+                        modals.forEach(el => el.style.display = 'none');
+                    }, 1000);
+                """)
+                page = context.new_page()
+
+                page.goto(url, wait_until="networkidle")
+                time.sleep(wait_seconds)  # Let it fully render
+
+                # Dismiss cookie banners
+                for selector in [
+                    'button:has-text("Accept")', 
+                    'button:has-text("Accept All")', 
+                    '.cookie-accept', 
+                    '[aria-label="Accept cookies"]'
+                ]:
+                    try:
+                        page.locator(selector).click(timeout=1000)
+                        break
+                    except:
+                        pass
+
+                if "login" in page.url:
+                    logger.error("Blocked by login wall")
+                    raise Exception("Blocked by login wall")
+
+                page.screenshot(path=path)
+                browser.close()
+        
+        # Take screenshot
+        ext = ".png"
+        temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+
+        logger.info(f"Taking screenshot of {url}...")
+        screenshot_url(url, path=temp_path)
+
+        # Downscale and save final image
+        processed_path = preprocess_image(temp_path)
+
+        # Final filename and move
+        final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+        os.rename(processed_path, final_filepath)
+
+        logger.info(f"Saved processed image to: {final_filepath}\n")
+
+        # Convert image to base64
+        IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+
+        # Send to OpenAI for processing
+        content = call_llm_api(
+            sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
+            image_b64 = IMAGE_BASE64
+        )
+
+        # Create embedding
+        embedding = call_vec_api(content)
+
+        # Save to database
+        session = Session()
+        entry = DataEntry(
+            username=user.username,
+            imagepath=final_filepath, 
+            posturl=url,
+            response=content, 
+            embedding=embedding,
+            timestamp=int(time.time())
+        )
+        session.add(entry)
+        session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Got and processed successfully'})
+    
+    except Exception as e:
+        logger.error("ERROR:", str(e))
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/get_image/<filename>')
+@limiter.limit("1 per second")
+@token_required
+def get_image(current_user, filename):
+    logger.info(f"Received request to get image: {filename}\n")
+    
+    # Check if the user exists
+    session = Session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        logger.error(f"User {user.username} not found.\n")
+        return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+
+    # Sanitize inputs
+    filename = secure_filename(filename)
+
+    # Confirm the image exists in that user's folder
+    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(image_path):
+        abort(404)
+
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/query', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def query(current_user):
+    logger.info(f"\nReceived request to query image from user of id: {current_user.id}\n")
+
+    data = request.json
+    logger.info(f"data: {data}\n")
+
+    query_text = data.get("searchText", "").strip()
+    if not query_text:
+        return jsonify({"error": "searchText required"}), 400
+    
+    session = Session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        return jsonify({"error": "Invalid user"}), 404
+
+    username = user.username
+    logger.info(f"Querying for user: {username}")
+
+    sql = text(f"""
+        SELECT imagepath, posturl, response, timestamp
+        FROM data
+        WHERE username = '{username}'
+        ORDER BY embedding <-> '{call_vec_api(query_text)}'
+        LIMIT 400
+    """)
+    result = session.execute(sql).fetchall()
+    # logger.info(f"result: {result[:10]}\n")
+
+    return jsonify({
+        "results": [
+            {
+                "image_presigned_url": f"get_image/{os.path.basename(r[0])}",
+                "post_url": r[1],
+                "image_text": r[2],
+                "timestamp_str": int(r[3]),
+            }
+            for r in result
+        ]
+    })
