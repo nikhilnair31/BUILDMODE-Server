@@ -12,17 +12,6 @@ from sqlalchemy import (
 
 Base = declarative_base()
 
-class DataEntry(Base):
-    __tablename__ = 'data'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String)
-    imagepath = Column(String)
-    posturl = Column(String)
-    response = Column(String)
-    embedding = Column(Vector(768))
-    timestamp = Column(Integer)
-
 class User(Base):
     __tablename__ = 'users'
 
@@ -37,3 +26,14 @@ class User(Base):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+class DataEntry(Base):
+    __tablename__ = 'data'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    imagepath = Column(String)
+    posturl = Column(String)
+    response = Column(String)
+    embedding = Column(Vector(768))
+    timestamp = Column(Integer)
+    userid = Column(Integer)

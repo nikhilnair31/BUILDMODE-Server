@@ -124,15 +124,16 @@
 - [ ] Add better docs and README
 - [ ] Look into refresh tokens
 - [ ] Create app logo
-- [ ] Update Android to retry for images
 - [ ] Update server to save posts with user id instead of username
 - [ ] Update server to move all posts to a new user with min 6 digit password 
+- [ ] Update server to use redis celery for browser work
 - [ ] Update system to relink posts even with new username
 - [ ] Update extension page to show image details on click
 - [ ] Update extension to complete auth register/login/edit
 - [ ] Update extension to allow for custom shortcuts
 - [ ] Update extension to save data on shortcut
 - [ ] Update extension page to show most recent images by default
+- [x] Update Android to retry for images
 - [x] Added db backups
 - [x] Added watchdog script and service
 - [x] Add server code to GitHub

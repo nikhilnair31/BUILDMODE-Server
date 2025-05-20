@@ -117,7 +117,7 @@ def token_required(f):
 def restrict_headers():
     user_agent = request.headers.get("User-Agent", "")
     api_key = request.headers.get("X-App-Key", None)
-    # logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
+    logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
 
     # Allow during development
     if "python" in user_agent.lower() or "postman" in user_agent.lower():
@@ -247,12 +247,12 @@ def upload_image(current_user):
         # Save to database
         session = Session()
         entry = DataEntry(
-            username=user.username,
             imagepath=final_filepath, 
             posturl="-",
             response=content, 
             embedding=embedding,
-            timestamp=int(time.time())
+            timestamp=int(time.time()),
+            userid=user.id,
         )
         session.add(entry)
         session.commit()
@@ -268,9 +268,9 @@ def upload_image(current_user):
 @limiter.limit("1 per second")
 @token_required
 def upload_url(current_user):
-    try:
-        logger.info("\nReceived request to upload url\n")
+    logger.info("\nReceived request to upload url\n")
 
+    try:
         url = request.form['url']
 
         # Check if the user exists
@@ -279,7 +279,6 @@ def upload_url(current_user):
         if not user:
             logger.error(f"User {user.username} not found.\n")
             return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
-        
         logger.info(f"Received from {user.username} a url: {url}\n")
 
         def screenshot_url(url, path="screenshot.png", wait_seconds=3):
@@ -358,12 +357,12 @@ def upload_url(current_user):
         # Save to database
         session = Session()
         entry = DataEntry(
-            username=user.username,
             imagepath=final_filepath, 
             posturl=url,
             response=content, 
             embedding=embedding,
-            timestamp=int(time.time())
+            timestamp=int(time.time()),
+            userid=user.id,
         )
         session.add(entry)
         session.commit()
@@ -376,7 +375,7 @@ def upload_url(current_user):
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/get_image/<filename>')
-@limiter.limit("1 per second")
+@limiter.limit("5 per second;30 per minute")
 @token_required
 def get_image(current_user, filename):
     logger.info(f"Received request to get image: {filename}\n")
@@ -416,13 +415,13 @@ def query(current_user):
     if not user:
         return jsonify({"error": "Invalid user"}), 404
 
-    username = user.username
-    logger.info(f"Querying for user: {username}")
+    userid = user.id
+    logger.info(f"Querying for userid: {userid}")
 
     sql = text(f"""
         SELECT imagepath, posturl, response, timestamp
         FROM data
-        WHERE username = '{username}'
+        WHERE userid = '{userid}'
         ORDER BY embedding <-> '{call_vec_api(query_text)}'
         LIMIT 400
     """)
