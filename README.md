@@ -124,18 +124,24 @@
 ### To-Do
 - [ ] Add systemd service and nginx config contents into files
 - [ ] Add better docs and README
-- [ ] Look into refresh tokens
-- [ ] Update server to pull image colors too
-- [ ] Update server to allow for time filters
+- [ ] Update server to combine time/semantic/color search
 - [ ] Update server to auto reindex vector db
+- [ ] Update server to avoid network block on sites
 - [ ] Update server to use redis celery for browser work
 - [ ] Update extension page to show image details on click
 - [ ] Update extension to complete auth register/login/edit
 - [ ] Update extension to allow for custom shortcuts
 - [ ] Update extension to save data on shortcut
 - [ ] Update extension page to show most recent images by default
+- [ ] Look into refresh token expiring
+- [ ] Look into double tap gesture for launching something
 
 ### Done
+- [x] 
+- [x] Add limit to response results
+- [x] Check max cosine distance to be allowed to be considered similar
+- [x] Update server to pull image colors too
+- [x] Update server to allow for time filters
 - [x] Create app logo
 - [x] Update Android to remove unused xml
 - [x] Update Android to show image in Pinterest grid

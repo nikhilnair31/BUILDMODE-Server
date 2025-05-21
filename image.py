@@ -1,11 +1,8 @@
-import os
-import random
 from PIL import Image
 from sklearn.cluster import KMeans
 from colormath.color_objects import sRGBColor, LabColor
 from colormath.color_conversions import convert_color
 from colormath.color_diff import delta_e_cie2000
-import matplotlib.pyplot as plt
 import numpy as np
 
 def rgb_to_lab(rgb):
@@ -52,13 +49,3 @@ def extract_distinct_colors(image_path, num_clusters=30, num_colors=10, merge_th
     flat_rgb = [v / 255.0 for color in top_colors for v in color]  # normalize to [0,1]
     padded_rgb = flat_rgb + [0.0] * (3 * num_colors - len(flat_rgb))
     return padded_rgb
-
-# Pick a random image
-image_folder_path = r'./uploads'
-image_files = [f for f in os.listdir(image_folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-
-if not image_files:
-    print("No image files found in the specified folder.")
-else:
-    image_path = os.path.join(image_folder_path, random.choice(image_files))
-    extract_distinct_colors(image_path, num_clusters=30, num_colors=10)
