@@ -26,6 +26,11 @@ from browser import (
 from pre_process import (
     preprocess_image
 )
+from parser import (
+    parse_time_input,
+    is_color_code,
+    rgb_to_vec
+)
 from ai import (
     call_llm_api,
     call_vec_api
@@ -432,13 +437,36 @@ def query(current_user):
     userid = user.id
     logger.info(f"Querying for userid: {userid}")
 
-    sql = text(f"""
-        SELECT imagepath, posturl, response, timestamp
-        FROM data
-        WHERE userid = '{userid}'
-        ORDER BY embedding <-> '{call_vec_api(query_text)}'
-        LIMIT 400
-    """)
+    # Check for color
+    if is_color_code(query_text):
+        swatch_vector = query_text if query_text.startswith("#") else rgb_to_vec(query_text)
+        sql = text(f"""
+            SELECT imagepath, posturl, response, timestamp, swatch_vector <-> '{swatch_vector}' AS distance
+            FROM data
+            WHERE userid = '{userid}'
+            ORDER BY distance ASC
+            LIMIT 400
+        """)
+    # Check for natural language time
+    elif (ts := parse_time_input(query_text)) is not None:
+        unix_time = int(ts.timestamp())
+        sql = text(f"""
+            SELECT imagepath, posturl, response, timestamp
+            FROM data
+            WHERE userid = '{userid}' AND timestamp >= {unix_time}
+            ORDER BY timestamp DESC
+            LIMIT 400
+        """)
+    # Default: semantic search
+    else:
+        sql = text(f"""
+            SELECT imagepath, posturl, response, timestamp
+            FROM data
+            WHERE userid = '{userid}'
+            ORDER BY embedding <-> '{call_vec_api(query_text)}'
+            LIMIT 400
+        """)
+
     result = session.execute(sql).fetchall()
     # logger.info(f"result: {result[:10]}\n")
 
