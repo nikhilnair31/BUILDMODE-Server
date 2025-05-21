@@ -119,20 +119,29 @@
 - Run this `sudo certbot --nginx -d mia2.xyz -d www.mia2.xyz`
 - Check for cron job for auto reneew SSL cert with `sudo certbot renew --dry-run`
 
-## TO-DO
+## Tasks
+
+### To-Do
 - [ ] Add systemd service and nginx config contents into files
 - [ ] Add better docs and README
 - [ ] Look into refresh tokens
-- [ ] Create app logo
-- [ ] Update server to save posts with user id instead of username
-- [ ] Update server to move all posts to a new user with min 6 digit password 
+- [ ] Update server to pull image colors too
+- [ ] Update server to allow for time filters
+- [ ] Update server to auto reindex vector db
 - [ ] Update server to use redis celery for browser work
-- [ ] Update system to relink posts even with new username
 - [ ] Update extension page to show image details on click
 - [ ] Update extension to complete auth register/login/edit
 - [ ] Update extension to allow for custom shortcuts
 - [ ] Update extension to save data on shortcut
 - [ ] Update extension page to show most recent images by default
+
+### Done
+- [x] Create app logo
+- [x] Update Android to remove unused xml
+- [x] Update Android to show image in Pinterest grid
+- [x] Update server to save posts with user id instead of username
+- [x] Update server to move all posts to a new user with min 6 digit password 
+- [x] Update system to relink posts even with new username
 - [x] Update Android to retry for images
 - [x] Added db backups
 - [x] Added watchdog script and service

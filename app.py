@@ -135,6 +135,36 @@ def hello():
     logger.info(log_text)
     return jsonify({"message": log_text})
 
+@app.route('/refresh_token', methods=['POST'])
+@limiter.limit("2 per second")
+def refresh_token():
+    data = request.get_json()
+    refresh_token = data.get('refresh_token', '')
+
+    try:
+        payload = jwt.decode(refresh_token, JWT_SECRET_KEY, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'message': 'Refresh token expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'message': 'Invalid refresh token'}), 401
+
+    session = Session()
+    user = session.query(User).get(payload['user_id'])
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    # Issue new access token
+    new_access_token = jwt.encode(
+        {
+            'user_id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+        },
+        JWT_SECRET_KEY,
+        algorithm='HS256'
+    )
+
+    return jsonify({'access_token': new_access_token}), 200
+
 @app.route('/register', methods=['POST'])
 @limiter.limit("1 per second")
 def register():
@@ -168,7 +198,7 @@ def login():
         logger.error(f"Invalid credentials for user {data['username']}.\n")
         return jsonify({'message': 'Invalid credentials'}), 401
 
-    token = jwt.encode(
+    access_token = jwt.encode(
         {
             'user_id': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
@@ -176,8 +206,21 @@ def login():
         JWT_SECRET_KEY, 
         algorithm='HS256'
     )
+    refresh_token = jwt.encode(
+        {
+            'user_id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=30)
+        }, 
+        JWT_SECRET_KEY, 
+        algorithm='HS256'
+    )
     
-    return jsonify({'token': token})
+    return jsonify(
+        {
+            'access_token': access_token, 
+            'refresh_token': refresh_token
+        }
+    ), 200
 
 @app.route('/update-username', methods=['POST'])
 @limiter.limit("1 per second")
