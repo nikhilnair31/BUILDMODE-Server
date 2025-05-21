@@ -7,6 +7,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column, 
     Integer, 
+    Float,
     String
 )
 
@@ -35,5 +36,6 @@ class DataEntry(Base):
     posturl = Column(String)
     response = Column(String)
     embedding = Column(Vector(768))
+    swatch_vector = Column(Vector(30))
     timestamp = Column(Integer)
     userid = Column(Integer)
