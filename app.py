@@ -102,7 +102,7 @@ def token_required(f):
         
         try:
             data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
-            logger.info(f"Decoded token payload: {data}")
+            # logger.info(f"Decoded token payload: {data}")
         except jwt.ExpiredSignatureError:
             return jsonify({'message': 'Token has expired'}), 401
         except jwt.InvalidTokenError:
@@ -114,7 +114,7 @@ def token_required(f):
         session = Session()
         try:
             user = session.query(User).filter_by(id=data['user_id']).first()
-            logger.info(f"user: {user}")
+            # logger.info(f"user: {user}")
             if not user:
                 logger.error(f"User ID {data['user_id']} not found in database.")
                 return jsonify({'message': 'User not found'}), 401
@@ -128,7 +128,7 @@ def token_required(f):
 def restrict_headers():
     user_agent = request.headers.get("User-Agent", "")
     api_key = request.headers.get("X-App-Key", None)
-    logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
+    # logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
 
     # Allow during development
     if "python" in user_agent.lower() or "postman" in user_agent.lower():
@@ -439,6 +439,7 @@ def query(current_user):
 
     # Check for color
     if is_color_code(query_text):
+        logger.info(f"Detected color code...")
         swatch_vector = query_text if query_text.startswith("#") else rgb_to_vec(query_text)
         sql = text(f"""
             SELECT imagepath, posturl, response, timestamp, swatch_vector <-> '{swatch_vector}' AS distance
@@ -447,28 +448,33 @@ def query(current_user):
             ORDER BY distance ASC
             LIMIT 400
         """)
-    # Check for natural language time
-    elif (ts := parse_time_input(query_text)) is not None:
-        unix_time = int(ts.timestamp())
-        sql = text(f"""
-            SELECT imagepath, posturl, response, timestamp
-            FROM data
-            WHERE userid = '{userid}' AND timestamp >= {unix_time}
-            ORDER BY timestamp DESC
-            LIMIT 400
-        """)
-    # Default: semantic search
     else:
-        sql = text(f"""
-            SELECT imagepath, posturl, response, timestamp
-            FROM data
-            WHERE userid = '{userid}'
-            ORDER BY embedding <-> '{call_vec_api(query_text)}'
-            LIMIT 400
-        """)
+        # Check for natural language time
+        ts = parse_time_input(query_text)
+        if ts is not None:
+            logger.info(f"Detected natural language time...")
+            unix_time = int(ts.timestamp())
+            logger.info(f"unix_time: {unix_time}")
+            sql = text(f"""
+                SELECT imagepath, posturl, response, timestamp
+                FROM data
+                WHERE userid = '{userid}' AND timestamp <= {unix_time}
+                ORDER BY timestamp DESC
+                LIMIT 400
+            """)
+        # Default: semantic search
+        else:
+            logger.info(f"Detected semantic search...")
+            sql = text(f"""
+                SELECT imagepath, posturl, response, timestamp
+                FROM data
+                WHERE userid = '{userid}'
+                ORDER BY embedding <-> '{call_vec_api(query_text)}'
+                LIMIT 400
+            """)
 
     result = session.execute(sql).fetchall()
-    # logger.info(f"result: {result[:10]}\n")
+    logger.info(f"result: {result[:1]}\n")
 
     return jsonify({
         "results": [
