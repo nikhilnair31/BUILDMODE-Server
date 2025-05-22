@@ -1,21 +1,25 @@
 import re
-import dateparser
+import parsedatetime
 from datetime import datetime
 
+# Regex pre-check to avoid parsing random strings
 DATE_HINT_REGEX = re.compile(
     r"(yesterday|today|ago|last|next|week|month|year|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+|\d{4})",
     flags=re.IGNORECASE
 )
 
+# Fast calendar parser
+cal = parsedatetime.Calendar()
+
 def parse_time_input(text):
     if not DATE_HINT_REGEX.search(text):
-        return None  # Fast exit: no date-like terms found
+        return None  # Short-circuit for non-date-like queries
 
-    parsed = dateparser.parse(text, settings={
-        'PREFER_DATES_FROM': 'past',
-        'RELATIVE_BASE': datetime.now()
-    })
-    return parsed
+    time_struct, parse_status = cal.parse(text)
+    if parse_status == 0:
+        return None  # Couldn’t parse into a date
+
+    return datetime(*time_struct[:6])  # Convert to datetime
 
 def is_color_code(text):
     return bool(re.match(r"^#(?:[0-9a-fA-F]{3}){1,2}$", text)) or \

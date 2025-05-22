@@ -41,6 +41,7 @@ networkx==3.4.2
 numpy==2.2.5
 ordered-set==4.1.0
 packaging==25.0
+parsedatetime==2.6
 pgvector==0.4.1
 pillow==11.2.1
 playwright==1.52.0
