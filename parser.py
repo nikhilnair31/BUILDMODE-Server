@@ -1,14 +1,21 @@
 import re
 import dateparser
-from datetime import datetime, timedelta
+from datetime import datetime
+
+DATE_HINT_REGEX = re.compile(
+    r"(yesterday|today|ago|last|next|week|month|year|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+|\d{4})",
+    flags=re.IGNORECASE
+)
 
 def parse_time_input(text):
+    if not DATE_HINT_REGEX.search(text):
+        return None  # Fast exit: no date-like terms found
+
     parsed = dateparser.parse(text, settings={
         'PREFER_DATES_FROM': 'past',
         'RELATIVE_BASE': datetime.now()
     })
-
-    return parsed  # may return None if parsing fails
+    return parsed
 
 def is_color_code(text):
     return bool(re.match(r"^#(?:[0-9a-fA-F]{3}){1,2}$", text)) or \

@@ -8,7 +8,6 @@ import tempfile
 import datetime
 import warnings
 import traceback
-from functools import wraps
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text, create_engine
@@ -40,6 +39,10 @@ from models import (
     Base,
     DataEntry,
     User
+)
+from functools import (
+    wraps, 
+    lru_cache
 )
 from flask import (
     Flask, 
@@ -124,6 +127,10 @@ def token_required(f):
 
         return f(user, *args, **kwargs)
     return wrapper
+
+@lru_cache(maxsize=512)
+def cached_call_vec_api(text):
+    return call_vec_api(text)
 
 @app.before_request
 def restrict_headers():
@@ -442,8 +449,10 @@ def query(current_user):
     color_code = extract_color_code(query_text)
 
     # Extract time and convert to timestamp
+    start = time.perf_counter()
     timestamp = parse_time_input(query_text)
     unix_time = int(timestamp.timestamp()) if timestamp else None
+    logger.info(f"unix_time took {time.perf_counter() - start:.2f}s")
 
     # Extract content after removing time & color
     cleaned_query = clean_text_of_color_and_time(query_text)
@@ -471,15 +480,17 @@ def query(current_user):
     if unix_time:
         logger.info(f"Detected time filter (<= {unix_time})")
         where_clauses.append(f"timestamp <= {unix_time}")
-
-    # Build SQL
-    sql = text(f"""
+    
+    final_sql = f"""
         SELECT {', '.join(select_fields)}
         FROM data
         WHERE {' AND '.join(where_clauses)}
         ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
         LIMIT 10
-    """)
+    """
+
+    # Build SQL
+    sql = text(final_sql)
     result = session.execute(sql).fetchall()
     logger.info(f"result: {result[:1]}\n")
 
