@@ -45,26 +45,21 @@
     - `sudo apt remove --purge -y postgresql*`
     - `sudo apt autoremove --purge -y`
 
-## Environment
-- Install these packages `pip install sqlalchemy psycopg2-binary pgvector werkzeug pillow google-genai python-dotenv flask` or from `requirements.txt`
-
 ## Service
 
 ### MIA2 Setup
 
-- Create a systemd Service with `sudo nano /etc/systemd/system/mia2.service`
+- Create a systemd Service with `sudo nano /etc/systemd/system/forgor-api.service`
 - Enable and Start the Service
     ```bash
-    sudo systemctl daemon-reexec
-    sudo systemctl daemon-reload
-    sudo systemctl enable mia2.service
-    sudo systemctl start mia2.service
-    sudo systemctl restart mia2.service
+    sudo systemctl daemon-reexec && sudo systemctl daemon-reload
+    sudo systemctl enable forgor-api.service && sudo systemctl start forgor-api.service
+    sudo systemctl restart forgor-api.service
     ```
 - Check Status and Logs
     ```bash
-    sudo systemctl status mia2
-    journalctl -u mia2.service -f
+    sudo systemctl status forgor-api
+    journalctl -u forgor-api.service -f
     ```
 
 ### Watchdog Setup
@@ -135,6 +130,8 @@
 ## Tasks
 
 ### To-Do
+- [ ] Add text saving endpoint
+- [ ] Add pdf support?
 - [ ] Add systemd service and nginx config contents into files
 - [ ] Add better docs and README
 - [ ] Update server to auto reindex vector db

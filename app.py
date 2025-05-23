@@ -92,7 +92,7 @@ Session = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
 
 def get_ip():
-    # logger.info(f"request.headers: {dict(request.headers)}\n")
+    logger.info(f"request.headers: {dict(request.headers)}\n")
     forwarded_for = request.headers.get('X-Forwarded-For', '')
     ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
     logger.info(f"Detected IP: {ip}")
@@ -102,7 +102,9 @@ def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        logger.info(f"Received token: {token}")
         if not token:
+            logger.error("Token missing")
             return jsonify({'message': 'Token missing'}), 401
         
         try:
@@ -137,7 +139,7 @@ def cached_call_vec_api(text):
 def restrict_headers():
     user_agent = request.headers.get("User-Agent", "")
     api_key = request.headers.get("X-App-Key", None)
-    # logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
+    logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
 
     # Allow during development
     if "python" in user_agent.lower() or "postman" in user_agent.lower():
@@ -148,14 +150,14 @@ def restrict_headers():
         print(f"Rejected request with UA: {user_agent}, API key: {api_key}")
         abort(403, description="Forbidden: Invalid or missing headers.")
 
-@app.route('/hello', methods=['GET'])
+@app.route('/api/hello', methods=['GET'])
 @limiter.limit("1 per second")
 def hello():
     log_text = f"Received hello request from {get_ip()}\n"
     logger.info(log_text)
     return jsonify({"message": log_text})
 
-@app.route('/refresh_token', methods=['POST'])
+@app.route('/api/refresh_token', methods=['POST'])
 @limiter.limit("2 per second")
 def refresh_token():
     data = request.get_json()
@@ -185,7 +187,7 @@ def refresh_token():
 
     return jsonify({'access_token': new_access_token}), 200
 
-@app.route('/register', methods=['POST'])
+@app.route('/api/register', methods=['POST'])
 @limiter.limit("1 per second")
 def register():
     data = request.get_json()
@@ -207,7 +209,7 @@ def register():
 
     return jsonify({"status": "success", "message": "User registered successfully."}), 200
 
-@app.route('/login', methods=['POST'])
+@app.route('/api/login', methods=['POST'])
 @limiter.limit("1 per second")
 def login():
     data = request.get_json()
@@ -244,7 +246,7 @@ def login():
         }
     ), 200
 
-@app.route('/update-username', methods=['POST'])
+@app.route('/api/update-username', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
 def update_username(current_user):
@@ -264,7 +266,7 @@ def update_username(current_user):
     
     return jsonify({'message': 'Username updated'}), 200
 
-@app.route('/upload/image', methods=['POST'])
+@app.route('/api/upload/image', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
 def upload_image(current_user):
@@ -333,7 +335,7 @@ def upload_image(current_user):
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/upload/imageurl', methods=['POST'])
+@app.route('/api/upload/imageurl', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
 def upload_imageurl(current_user):
@@ -399,7 +401,7 @@ def upload_imageurl(current_user):
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/upload/url', methods=['POST'])
+@app.route('/api/upload/url', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
 def upload_url(current_user):
@@ -470,7 +472,7 @@ def upload_url(current_user):
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/get_image/<filename>')
+@app.route('/api/get_image/<filename>')
 @limiter.limit("5 per second;30 per minute")
 @token_required
 def get_image(current_user, filename):
@@ -493,7 +495,7 @@ def get_image(current_user, filename):
 
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-@app.route('/query', methods=['POST'])
+@app.route('/api/query', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
 def query(current_user):

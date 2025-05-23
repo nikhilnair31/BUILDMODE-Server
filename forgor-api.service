@@ -1,0 +1,16 @@
+[Unit]
+Description=Gunicorn for FORGOR API
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/projects/BUILDMODE-Server
+Environment="PATH=/root/projects/BUILDMODE-Server/env/bin"
+ExecStart=/root/projects/BUILDMODE-Server/env/bin/gunicorn --workers 4 --bind 0.0.0.0:5000 --capture-output --log-level debug app:app --forwarded-allow-ips="*"
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
