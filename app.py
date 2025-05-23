@@ -8,6 +8,7 @@ import tempfile
 import datetime
 import warnings
 import traceback
+import requests
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text, create_engine
@@ -216,6 +217,7 @@ def login():
     if not user or not user.check_password(data['password']):
         logger.error(f"Invalid credentials for user {data['username']}.\n")
         return jsonify({'message': 'Invalid credentials'}), 401
+    logger.info(f"User {user.username} logged in successfully.\n")
 
     access_token = jwt.encode(
         {
@@ -233,6 +235,7 @@ def login():
         JWT_SECRET_KEY, 
         algorithm='HS256'
     )
+    logger.info(f"Generated access and refresh token\n")
     
     return jsonify(
         {
@@ -324,6 +327,72 @@ def upload_image(current_user):
         session.commit()
 
         return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'})
+    
+    except Exception as e:
+        logger.error("ERROR:", str(e))
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/upload/imageurl', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def upload_imageurl(current_user):
+    try:
+        logger.info("\nReceived request to upload image from URL\n")
+
+        image_url = request.form.get("image_url")
+        post_url = request.form.get("post_url", "-")  # original page image came from
+
+        if not image_url:
+            return jsonify({'status': 'error', 'message': 'No image URL provided.'}), 400
+
+        session = Session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            return jsonify({"status": "error", "message": "User not found."}), 404
+
+        logger.info(f"Downloading image from: {image_url}")
+        response = requests.get(image_url, stream=True)
+        if response.status_code != 200:
+            raise Exception(f"Failed to fetch image from URL: {image_url}")
+
+        ext = os.path.splitext(image_url)[1]
+        if ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
+            ext = ".jpg"
+
+        temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+
+        with open(temp_path, "wb") as out_file:
+            out_file.write(response.content)
+
+        processed_path = preprocess_image(temp_path)
+        final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+        os.rename(processed_path, final_filepath)
+
+        IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+
+        content = call_llm_api(
+            sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
+            image_b64 = IMAGE_BASE64
+        )
+        embedding = call_vec_api(content)
+        swatch_vector = extract_distinct_colors(final_filepath)
+
+        entry = DataEntry(
+            imagepath=final_filepath, 
+            posturl=post_url,
+            response=content, 
+            embedding=embedding,
+            swatch_vector=swatch_vector,
+            timestamp=int(time.time()),
+            userid=user.id,
+        )
+        session.add(entry)
+        session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Image from URL processed successfully'})
     
     except Exception as e:
         logger.error("ERROR:", str(e))

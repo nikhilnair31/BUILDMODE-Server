@@ -96,27 +96,40 @@
 - Have domain
 - Set A address as the VPS's IP address
 - Wait 15 min
-- Create an nginx config file with `sudo nano /etc/nginx/sites-available/mia2` and replace with:
+- Create an nginx config file with `sudo nano /etc/nginx/sites-available/<name>` and replace with:
     ```
     server {
         listen 80;
-        server_name mia2.xyz www.mia2.xyz;
+        server_name <name>.xyz www.<name>.xyz;
 
         location / {
-            proxy_pass http://127.0.0.1:5000;  # Flask app on Gunicorn
+            # Rate limit
+            limit_req zone=one burst=5 nodelay;
+            # Block curl, wget, or any known scraping tools
+            if ($http_user_agent ~* (curl|wget|bot|scrapy|python-requests)) {
+                return 403;
+            }
+            # Block requests with empty User-Agent
+            if ($http_user_agent = "") {
+                return 403;
+            }
+            
+            proxy_pass http://127.0.0.1:5000;
+            
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Authorization $http_authorization;
         }
     }
     ```
-- Link files with `sudo ln -s /etc/nginx/sites-available/mia2 /etc/nginx/sites-enabled/`
+- Link files with `sudo ln -s /etc/nginx/sites-available/<name> /etc/nginx/sites-enabled/`
 - Validate config with `sudo nginx -t`
 - Reload with `sudo systemctl reload nginx`
 
 ### HTTPS Setup
-- Run this `sudo certbot --nginx -d mia2.xyz -d www.mia2.xyz`
+- Run this `sudo certbot --nginx -d <name>.xyz -d www.<name>.xyz`
 - Check for cron job for auto reneew SSL cert with `sudo certbot renew --dry-run`
 
 ## Tasks
@@ -124,20 +137,15 @@
 ### To-Do
 - [ ] Add systemd service and nginx config contents into files
 - [ ] Add better docs and README
-- [ ] Update server to combine time/semantic/color search
 - [ ] Update server to auto reindex vector db
 - [ ] Update server to avoid network block on sites
 - [ ] Update server to use redis celery for browser work
-- [ ] Update extension page to show image details on click
-- [ ] Update extension to complete auth register/login/edit
-- [ ] Update extension to allow for custom shortcuts
-- [ ] Update extension to save data on shortcut
-- [ ] Update extension page to show most recent images by default
 - [ ] Look into refresh token expiring
 - [ ] Look into double tap gesture for launching something
 
 ### Done
 - [x] 
+- [x] Update server to combine time/semantic/color search
 - [x] Add limit to response results
 - [x] Check max cosine distance to be allowed to be considered similar
 - [x] Update server to pull image colors too
