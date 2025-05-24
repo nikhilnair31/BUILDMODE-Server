@@ -45,9 +45,7 @@
     - `sudo apt remove --purge -y postgresql*`
     - `sudo apt autoremove --purge -y`
 
-## Service
-
-### MIA2 Setup
+## Service Setup
 
 - Create a systemd Service with `sudo nano /etc/systemd/system/forgor-api.service`
 - Enable and Start the Service
@@ -132,8 +130,6 @@
 ### To-Do
 - [ ] Add text saving endpoint
 - [ ] Add pdf support?
-- [ ] Add systemd service and nginx config contents into files
-- [ ] Add better docs and README
 - [ ] Update server to auto reindex vector db
 - [ ] Update server to avoid network block on sites
 - [ ] Update server to use redis celery for browser work
@@ -142,6 +138,8 @@
 
 ### Done
 - [x] 
+- [x] Add systemd service and nginx config contents into files
+- [x] Add better docs and README
 - [x] Update server to combine time/semantic/color search
 - [x] Add limit to response results
 - [x] Check max cosine distance to be allowed to be considered similar

@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text, create_engine
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
-from playwright.sync_api import sync_playwright
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from image import (
@@ -88,11 +88,14 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 engine = create_engine(ENGINE_URL)
 Session = sessionmaker(bind=engine)
 
+# Allow all origins for now, or restrict to your frontend domain
+CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
+
 # Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
 
 def get_ip():
-    logger.info(f"request.headers: {dict(request.headers)}\n")
+    # logger.info(f"request.headers: {dict(request.headers)}\n")
     forwarded_for = request.headers.get('X-Forwarded-For', '')
     ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
     logger.info(f"Detected IP: {ip}")
@@ -137,9 +140,12 @@ def cached_call_vec_api(text):
 
 @app.before_request
 def restrict_headers():
+    if request.path.startswith("/api/get_image/"):
+        return
+    
     user_agent = request.headers.get("User-Agent", "")
     api_key = request.headers.get("X-App-Key", None)
-    logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
+    # logger.info(f"User-Agent: {user_agent}, API key: {api_key}")
 
     # Allow during development
     if "python" in user_agent.lower() or "postman" in user_agent.lower():
@@ -490,6 +496,7 @@ def get_image(current_user, filename):
 
     # Confirm the image exists in that user's folder
     image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    logger.info(f"image_path: {image_path}\n")
     if not os.path.exists(image_path):
         abort(404)
 
@@ -568,7 +575,7 @@ def query(current_user):
     return jsonify({
         "results": [
             {
-                "image_presigned_url": f"get_image/{os.path.basename(r[0])}",
+                "image_path": f"{os.path.basename(r[0])}",
                 "post_url": r[1],
                 "image_text": r[2],
                 "timestamp_str": int(r[3]),
