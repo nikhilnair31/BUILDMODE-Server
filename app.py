@@ -583,3 +583,78 @@ def query(current_user):
             for r in result
         ]
     })
+
+@app.route('/api/check', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def check(current_user):
+    logger.info(f"\nChecking for: {current_user.id}\n")
+
+    data = request.json
+    logger.info(f"data: {data}\n")
+
+    query_text = data.get("searchText", "").strip()
+    if not query_text:
+        return jsonify({"error": "searchText required"}), 400
+    
+    session = Session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        return jsonify({"error": "Invalid user"}), 404
+    
+    # Extract color
+    color_code = extract_color_code(query_text)
+
+    # Extract time and convert to timestamp
+    timestamp = parse_time_input(query_text)
+    unix_time = int(timestamp.timestamp()) if timestamp else None
+
+    # Extract content after removing time & color
+    cleaned_query = clean_text_of_color_and_time(query_text)
+    query_vector = call_vec_api(cleaned_query) if cleaned_query else None
+
+    # Build SELECT fields
+    select_fields = ["imagepath", "posturl", "response", "timestamp"]
+    where_clauses = [f"userid = '{user.id}'"]
+    order_by_clauses = []
+
+    # Add color vector filter
+    if color_code:
+        logger.info("Detected color input")
+        swatch_vector = color_code if isinstance(color_code, str) and color_code.startswith("#") else rgb_to_vec(color_code)
+        select_fields.append(f"swatch_vector <-> '{swatch_vector}' AS color_distance")
+        order_by_clauses.append("color_distance ASC")
+
+    # Add content vector filter
+    if query_vector:
+        logger.info("Detected content input")
+        select_fields.append(f"embedding <=> '{query_vector}' AS semantic_distance")
+        order_by_clauses.append("semantic_distance ASC")
+
+    # Time filter
+    if unix_time:
+        logger.info(f"Detected time filter (<= {unix_time})")
+        where_clauses.append(f"timestamp <= {unix_time}")
+    
+    final_sql = f"""
+        SELECT {', '.join(select_fields)}
+        FROM data
+        WHERE {' AND '.join(where_clauses)}
+        ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
+        LIMIT 3
+    """
+
+    # Build SQL
+    sql = text(final_sql)
+    result = session.execute(sql).fetchall()
+    logger.info(f"result: {result[:1]}\n")
+
+    # Content of value?
+    useful_content = len(result) > 0
+
+    return jsonify({
+        "results": {
+            "useful": useful_content,
+            "query": query_text,
+        }
+    }), 200
