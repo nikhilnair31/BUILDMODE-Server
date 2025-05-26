@@ -128,7 +128,6 @@
 ## Tasks
 
 ### To-Do
-- [ ] Add text saving endpoint
 - [ ] Add pdf support?
 - [ ] Add logic to auto reindex vector db
 - [ ] Add logic to avoid network block on sites
@@ -139,7 +138,7 @@
 - [ ] Look into double tap gesture for launching something
 
 ### Done
-- [x] 
+- [x] Add text saving endpoint
 - [x] Add systemd service and nginx config contents into files
 - [x] Add better docs and README
 - [x] Update server to combine time/semantic/color search

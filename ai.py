@@ -8,33 +8,31 @@ load_dotenv()
 LLM_PROVIDER = "gemini"
 VEC_PROVIDER = "gemini"
 
-def call_llm_api(sysprompt, image_b64):
+def call_llm_api(sysprompt, image_b64_list):
     print(f"\nLLM...")
 
     if LLM_PROVIDER == "gemini":
-        response_json = call_gemini(sysprompt, image_b64)
+        response_json = call_gemini(sysprompt, image_b64_list)
         return response_json
         
     return ""
-def call_gemini(sysprompt, image_b64):
+def call_gemini(sysprompt, image_b64_list):
     print(f"Calling Gemini...\n")
 
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
     MODEL_ID = "gemini-2.0-flash"
 
     client = genai.Client(api_key=GEMINI_API_KEY)
+    parts = [
+        types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_b64_list
+    ]
     response = client.models.generate_content(
         model=MODEL_ID,
         config=types.GenerateContentConfig(
             system_instruction=sysprompt,
             temperature=1.0
         ),
-        contents=[
-            types.Part.from_bytes(
-                data=image_b64,
-                mime_type='image/jpeg',
-            )
-        ]
+        contents=parts
     )
     # print(f"response: {response}\n")
     # print(f"response: {response[:10]}\n")

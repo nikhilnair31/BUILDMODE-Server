@@ -19,7 +19,8 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from image import (
     extract_distinct_colors,
-    generate_text_image
+    generate_text_image,
+    generate_img_b64_list
 )
 from browser import (
     screenshot_url
@@ -353,7 +354,7 @@ def upload_image(current_user):
         logger.info(f"Saved processed image to: {final_filepath}\n")
 
         # Convert image to base64
-        IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+        IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
         # Send to OpenAI for processing
         content = call_llm_api(
@@ -406,7 +407,7 @@ def upload_imageurl(current_user):
         if not user:
             return jsonify({"status": "error", "message": "User not found."}), 404
 
-        logger.info(f"Downloading image from: {image_url}")
+        logger.info(f"Downloading image from: {image_url[:25]}")
         response = requests.get(image_url, stream=True)
         if response.status_code != 200:
             raise Exception(f"Failed to fetch image from URL: {image_url}")
@@ -426,7 +427,7 @@ def upload_imageurl(current_user):
         final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
         os.rename(processed_path, final_filepath)
 
-        IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+        IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
         content = call_llm_api(
             sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
@@ -529,7 +530,7 @@ def upload_text(current_user):
             logger.info(f"Saved processed image to: {final_filepath}\n")
 
             # Convert image to base64
-            IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+            IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
             # Send to OpenAI for processing
             content = call_llm_api(
@@ -566,6 +567,53 @@ def upload_text(current_user):
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/upload/pdf', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def upload_pdf(current_user):
+    file = request.files.get("pdf")
+    if not file:
+        return jsonify({"status": "error", "message": "No PDF uploaded"}), 400
+
+    filename = secure_filename(file.filename)
+    timestamped_filename = f"{os.path.splitext(filename)[0]}_{int(time.time())}.pdf"
+    save_path = os.path.join(app.config["UPLOAD_FOLDER"], timestamped_filename)
+    file.save(save_path)
+
+    try:
+        image_b64_list = generate_img_b64_list(save_path)
+        if not image_b64_list:
+            return jsonify({"status": "error", "message": "No pages found in PDF"}), 400
+
+        # ✅ Send all pages to LLM
+        content = call_llm_api(
+            sysprompt=IMAGE_PREPROCESS_SYSTEM_PROMPT,
+            image_b64_list=image_b64_list
+        )
+
+        # ✅ Create embedding
+        embedding = call_vec_api(content)
+
+        # ✅ Save to DB
+        session = Session()
+        entry = DataEntry(
+            imagepath=save_path,
+            posturl="-",
+            response=content,
+            embedding=embedding,
+            swatch_vector=None,
+            timestamp=int(time.time()),
+            userid=current_user.id,
+        )
+        session.add(entry)
+        session.commit()
+
+        return jsonify({"status": "success", "message": "PDF uploaded and processed"})
+
+    except Exception as e:
+        logger.error(f"Error processing PDF: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/api/get_image/<filename>')
 @limiter.limit("5 per second;30 per minute")
 @token_required
@@ -591,7 +639,7 @@ def get_image(current_user, filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/api/query', methods=['POST'])
-@limiter.limit("1 per second")
+@limiter.limit("5 per second")
 @token_required
 def query(current_user):
     logger.info(f"\nReceived request to query image from user of id: {current_user.id}\n")

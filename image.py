@@ -1,3 +1,5 @@
+import fitz
+import base64
 from PIL import Image, ImageDraw, ImageFont
 from sklearn.cluster import KMeans
 from colormath.color_objects import sRGBColor, LabColor
@@ -77,3 +79,20 @@ def generate_text_image(text, output_path, font_path=None, font_size=24, width=8
         y += font_size + 10
     
     image.save(output_path)
+
+def generate_img_b64_list(save_path):
+    # ✅ Load PDF and convert each page to JPEG base64
+    doc = fitz.open(save_path)
+    if doc.page_count == 0:
+        return None
+
+    image_b64_list = []
+    for page in doc:
+        pix = page.get_pixmap()
+        image_bytes = pix.tobytes("jpeg")
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        image_b64_list.append(image_b64)
+
+    doc.close()
+    
+    return image_b64_list
