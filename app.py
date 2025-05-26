@@ -18,7 +18,8 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from image import (
-    extract_distinct_colors
+    extract_distinct_colors,
+    generate_text_image
 )
 from browser import (
     screenshot_url
@@ -27,6 +28,7 @@ from pre_process import (
     preprocess_image
 )
 from parser import (
+    parse_url_or_text,
     parse_time_input,
     extract_color_code,
     clean_text_of_color_and_time,
@@ -452,14 +454,14 @@ def upload_imageurl(current_user):
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/api/upload/url', methods=['POST'])
+@app.route('/api/upload/text', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
-def upload_url(current_user):
-    logger.info("\nReceived request to upload url\n")
+def upload_text(current_user):
+    logger.info("\nReceived request to upload text\n")
 
     try:
-        url = request.form['url']
+        text = request.form['text']
 
         # Check if the user exists
         session = Session()
@@ -467,56 +469,97 @@ def upload_url(current_user):
         if not user:
             logger.error(f"User {user.username} not found.\n")
             return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
-        logger.info(f"Received from {user.username} a url: {url}\n")
-        
-        # Take screenshot
-        ext = ".png"
-        temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
-        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+        logger.info(f"Received from {user.username} a text: {text}\n")
 
-        logger.info(f"Taking screenshot of {url}...")
-        screenshot_url(url, path=temp_path)
+        # Parse URL or text
+        parse_type, content = parse_url_or_text(text)
+        if parse_type == "text":
+            selected_text = content
+            
+            # Final filename and move
+            temp_filename = f"{uuid.uuid4().hex}.png"
+            temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+            generate_text_image(selected_text, temp_path, font_path='assets/venus_cormier.otf')
 
-        # Downscale and save final image
-        processed_path = preprocess_image(temp_path)
+            # Downscale and save to final path
+            processed_path = preprocess_image(temp_path)
+            final_filename = secure_filename(f"{uuid.uuid4().hex}.png")
+            final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+            os.rename(processed_path, final_filepath)
+            logger.info(f"Saved text-rendered image to: {final_filepath}\n")
 
-        # Final filename and move
-        final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
-        final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
-        os.rename(processed_path, final_filepath)
+            # Create embedding
+            embedding = call_vec_api(selected_text)
 
-        logger.info(f"Saved processed image to: {final_filepath}\n")
+            # Save to database
+            session = Session()
+            entry = DataEntry(
+                imagepath=final_filepath, 
+                posturl="-",
+                response=selected_text, 
+                embedding=embedding,
+                swatch_vector=None,  # No color swatch for text
+                timestamp=int(time.time()),
+                userid=user.id,
+            )
+            session.add(entry)
+            session.commit()
 
-        # Convert image to base64
-        IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+            return jsonify({'status': 'success', 'message': 'Text processed into image successfully'})
+        elif parse_type == "url":
+            url = content
+            logger.info(f"Received URL: {url}\n")
+            
+            # Take screenshot
+            ext = ".png"
+            temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+            temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
 
-        # Send to OpenAI for processing
-        content = call_llm_api(
-            sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64 = IMAGE_BASE64
-        )
+            logger.info(f"Taking screenshot of {url}...")
+            screenshot_url(url, path=temp_path)
 
-        # Create embedding
-        embedding = call_vec_api(content)
+            # Downscale and save final image
+            processed_path = preprocess_image(temp_path)
 
-        # Extract distinct colors
-        swatch_vector = extract_distinct_colors(final_filepath)
+            # Final filename and move
+            final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+            final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+            os.rename(processed_path, final_filepath)
 
-        # Save to database
-        session = Session()
-        entry = DataEntry(
-            imagepath=final_filepath, 
-            posturl=url,
-            response=content, 
-            embedding=embedding,
-            swatch_vector=swatch_vector,
-            timestamp=int(time.time()),
-            userid=user.id,
-        )
-        session.add(entry)
-        session.commit()
+            logger.info(f"Saved processed image to: {final_filepath}\n")
 
-        return jsonify({'status': 'success', 'message': 'Got and processed successfully'})
+            # Convert image to base64
+            IMAGE_BASE64 = base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")
+
+            # Send to OpenAI for processing
+            content = call_llm_api(
+                sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
+                image_b64 = IMAGE_BASE64
+            )
+
+            # Create embedding
+            embedding = call_vec_api(content)
+
+            # Extract distinct colors
+            swatch_vector = extract_distinct_colors(final_filepath)
+
+            # Save to database
+            session = Session()
+            entry = DataEntry(
+                imagepath=final_filepath, 
+                posturl=url,
+                response=content, 
+                embedding=embedding,
+                swatch_vector=swatch_vector,
+                timestamp=int(time.time()),
+                userid=user.id,
+            )
+            session.add(entry)
+            session.commit()
+
+            return jsonify({'status': 'success', 'message': 'URL processed successfully'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Invalid input provided.'}), 400
     
     except Exception as e:
         logger.error("ERROR:", str(e))
