@@ -1,6 +1,10 @@
 import re
+import logging
 import parsedatetime
 from datetime import datetime
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Regex pre-check to avoid parsing random strings
 DATE_HINT_REGEX = re.compile(
@@ -12,6 +16,8 @@ DATE_HINT_REGEX = re.compile(
 cal = parsedatetime.Calendar()
 
 def parse_time_input(text):
+    logger.info(f"Parsing time input...")
+
     if not DATE_HINT_REGEX.search(text):
         return None  # Short-circuit for non-date-like queries
 
@@ -19,7 +25,10 @@ def parse_time_input(text):
     if parse_status == 0:
         return None  # Couldn’t parse into a date
 
-    return datetime(*time_struct[:6])  # Convert to datetime
+    converted_time = datetime(*time_struct[:6])  # Convert to datetime
+    logger.info(f"Parsed time: {converted_time}")
+
+    return converted_time
 
 def is_color_code(text):
     return bool(re.match(r"^#(?:[0-9a-fA-F]{3}){1,2}$", text)) or \

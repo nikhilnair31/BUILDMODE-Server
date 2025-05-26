@@ -105,7 +105,7 @@ def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        logger.info(f"Received token: {token}")
+        # logger.info(f"Received token: {token}")
         if not token:
             logger.error("Token missing")
             return jsonify({'message': 'Token missing'}), 401
@@ -271,6 +271,51 @@ def update_username(current_user):
         session.close()
     
     return jsonify({'message': 'Username updated'}), 200
+
+@app.route('/api/delete/image', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def delete_image(current_user):
+    try:
+        logger.info("\nReceived request to delete image\n")
+
+        image_name = request.form['image_name']
+        if not image_name:
+            return jsonify({'status': 'error', 'message': 'No image_name provided.'}), 400
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_name)
+        logger.info(f"Received image_path: {image_path}\n")
+
+        # Check if the user exists
+        session = Session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            logger.error(f"User {user.username} not found.\n")
+            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+        
+        # Find entry with this image path and user ID
+        entry = session.query(DataEntry).filter_by(imagepath=image_path, userid=user.id).first()
+        if not entry:
+            logger.warning(f"No entry found for image_path: {image_path}")
+            return jsonify({"status": "error", "message": "No matching image entry found."}), 404
+
+        # Delete the image file if it exists
+        if os.path.exists(image_path):
+            os.remove(image_path)
+            logger.info(f"Deleted image file: {image_path}")
+        else:
+            logger.warning(f"Image file not found at path: {image_path}")
+
+        # Delete the database entry
+        session.delete(entry)
+        session.commit()
+        session.close()
+
+        return jsonify({'status': 'success', 'message': 'Deleted image successfully'})
+    
+    except Exception as e:
+        logger.error("ERROR:", str(e))
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/upload/image', methods=['POST'])
 @limiter.limit("1 per second")
@@ -556,8 +601,8 @@ def query(current_user):
 
     # Time filter
     if unix_time:
-        logger.info(f"Detected time filter (<= {unix_time})")
-        where_clauses.append(f"timestamp <= {unix_time}")
+        logger.info(f"Detected time filter (>= {unix_time})")
+        where_clauses.append(f"timestamp >= {unix_time}")
     
     final_sql = f"""
         SELECT {', '.join(select_fields)}
@@ -570,7 +615,7 @@ def query(current_user):
     # Build SQL
     sql = text(final_sql)
     result = session.execute(sql).fetchall()
-    logger.info(f"result: {result[:1]}\n")
+    logger.info(f"len result: {len(result)}\n")
 
     return jsonify({
         "results": [

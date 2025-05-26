@@ -1,4 +1,4 @@
-# MIA-2 Server
+# BUILDMODE-Server
 
 ## Initial
 - Run these at first
@@ -45,7 +45,7 @@
     - `sudo apt remove --purge -y postgresql*`
     - `sudo apt autoremove --purge -y`
 
-## Service Setup
+## Systemd Service Setup
 
 - Create a systemd Service with `sudo nano /etc/systemd/system/forgor-api.service`
 - Enable and Start the Service
@@ -60,7 +60,7 @@
     journalctl -u forgor-api.service -f
     ```
 
-### Watchdog Setup
+## Watchdog Setup
 
 - Place the Script
     ```bash
@@ -130,9 +130,11 @@
 ### To-Do
 - [ ] Add text saving endpoint
 - [ ] Add pdf support?
-- [ ] Update server to auto reindex vector db
-- [ ] Update server to avoid network block on sites
-- [ ] Update server to use redis celery for browser work
+- [ ] Add logic to auto reindex vector db
+- [ ] Add logic to avoid network block on sites
+- [ ] Add logic to use redis celery for browser work
+
+### Skipped
 - [ ] Look into refresh token expiring
 - [ ] Look into double tap gesture for launching something
 
