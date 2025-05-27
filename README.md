@@ -89,34 +89,8 @@
 - Have domain
 - Set A address as the VPS's IP address
 - Wait 15 min
-- Create an nginx config file with `sudo nano /etc/nginx/sites-available/<name>` and replace with:
-    ```
-    server {
-        listen 80;
-        server_name <name>.xyz www.<name>.xyz;
-
-        location / {
-            # Rate limit
-            limit_req zone=one burst=5 nodelay;
-            # Block curl, wget, or any known scraping tools
-            if ($http_user_agent ~* (curl|wget|bot|scrapy|python-requests)) {
-                return 403;
-            }
-            # Block requests with empty User-Agent
-            if ($http_user_agent = "") {
-                return 403;
-            }
-            
-            proxy_pass http://127.0.0.1:5000;
-            
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Authorization $http_authorization;
-        }
-    }
-    ```
+- Create an nginx config file with `sudo nano /etc/nginx/sites-available/<name>` 
+- Use content in `nginx.config`
 - Link files with `sudo ln -s /etc/nginx/sites-available/<name> /etc/nginx/sites-enabled/`
 - Validate config with `sudo nginx -t`
 - Reload with `sudo systemctl reload nginx`
@@ -128,6 +102,9 @@
 ## Tasks
 
 ### To-Do
+- [ ] Check why links won't save right
+- [ ] Improve color system
+- [ ] Add logic to do similar content
 - [ ] Add logic to auto reindex vector db
 - [ ] Add logic to avoid network block on sites
 - [ ] Add logic to use redis celery for browser work

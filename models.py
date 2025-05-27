@@ -21,6 +21,7 @@ class User(Base):
     password_hash = Column(String)
     created_at = Column(Integer)
     updated_at = Column(Integer)
+    tier_id = Column(Integer, default=1)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -32,10 +33,10 @@ class DataEntry(Base):
     __tablename__ = 'data'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    imagepath = Column(String)
-    posturl = Column(String)
-    response = Column(String)
-    embedding = Column(Vector(768))
+    file_path = Column(String)
+    post_url = Column(String)
+    tags = Column(String)
+    tags_vector = Column(Vector(768))
     swatch_vector = Column(Vector(30))
     timestamp = Column(Integer)
-    userid = Column(Integer)
+    user_id = Column(Integer)

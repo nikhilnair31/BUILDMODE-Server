@@ -56,6 +56,7 @@ from flask import (
     send_from_directory
 )
 
+#region initialization
 load_dotenv()
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -96,14 +97,18 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
 
 # Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
+# endregion
 
+#region helpers
 def get_ip():
     # logger.info(f"request.headers: {dict(request.headers)}\n")
     forwarded_for = request.headers.get('X-Forwarded-For', '')
     ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
     logger.info(f"Detected IP: {ip}")
     return ip
+# endregion
 
+#region wrappers
 def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -136,11 +141,15 @@ def token_required(f):
 
         return f(user, *args, **kwargs)
     return wrapper
+# endregion
 
+#region caching
 @lru_cache(maxsize=512)
 def cached_call_vec_api(text):
     return call_vec_api(text)
+# endregion
 
+#region before request
 @app.before_request
 def restrict_headers():
     if request.path.startswith("/api/get_image/"):
@@ -158,7 +167,9 @@ def restrict_headers():
     if not api_key or api_key != APP_SECRET_KEY:
         print(f"Rejected request with UA: {user_agent}, API key: {api_key}")
         abort(403, description="Forbidden: Invalid or missing headers.")
+# endregion
 
+#region endpoints
 @app.route('/api/hello', methods=['GET'])
 @limiter.limit("1 per second")
 def hello():
@@ -296,7 +307,7 @@ def delete_image(current_user):
             return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
         
         # Find entry with this image path and user ID
-        entry = session.query(DataEntry).filter_by(imagepath=image_path, userid=user.id).first()
+        entry = session.query(DataEntry).filter_by(file_path=image_path, user_id=user.id).first()
         if not entry:
             logger.warning(f"No entry found for image_path: {image_path}")
             return jsonify({"status": "error", "message": "No matching image entry found."}), 404
@@ -371,13 +382,13 @@ def upload_image(current_user):
         # Save to database
         session = Session()
         entry = DataEntry(
-            imagepath=final_filepath, 
-            posturl="-",
-            response=content, 
-            embedding=embedding,
+            file_path=final_filepath, 
+            post_url="-",
+            tags=content, 
+            tags_vector=embedding,
             swatch_vector=swatch_vector,
             timestamp=int(time.time()),
-            userid=user.id,
+            user_id=user.id,
         )
         session.add(entry)
         session.commit()
@@ -437,13 +448,13 @@ def upload_imageurl(current_user):
         swatch_vector = extract_distinct_colors(final_filepath)
 
         entry = DataEntry(
-            imagepath=final_filepath, 
-            posturl=post_url,
-            response=content, 
-            embedding=embedding,
+            file_path=final_filepath, 
+            post_url=post_url,
+            tags=content, 
+            tags_vector=embedding,
             swatch_vector=swatch_vector,
             timestamp=int(time.time()),
-            userid=user.id,
+            user_id=user.id,
         )
         session.add(entry)
         session.commit()
@@ -490,13 +501,13 @@ def upload_text(current_user):
             # Save to database
             session = Session()
             entry = DataEntry(
-                imagepath=final_filepath, 
-                posturl="-",
-                response=selected_text, 
-                embedding=embedding,
+                file_path=final_filepath, 
+                post_url="-",
+                tags=selected_text, 
+                tags_vector=embedding,
                 swatch_vector=None,  # No color swatch for text
                 timestamp=int(time.time()),
-                userid=user.id,
+                user_id=user.id,
             )
             session.add(entry)
             session.commit()
@@ -542,13 +553,13 @@ def upload_text(current_user):
             # Save to database
             session = Session()
             entry = DataEntry(
-                imagepath=final_filepath, 
-                posturl=url,
-                response=content, 
-                embedding=embedding,
+                file_path=final_filepath, 
+                post_url=url,
+                tags=content, 
+                tags_vector=embedding,
                 swatch_vector=swatch_vector,
                 timestamp=int(time.time()),
-                userid=user.id,
+                user_id=user.id,
             )
             session.add(entry)
             session.commit()
@@ -592,13 +603,13 @@ def upload_pdf(current_user):
         # ✅ Save to DB
         session = Session()
         entry = DataEntry(
-            imagepath=save_path,
-            posturl="-",
-            response=content,
-            embedding=embedding,
+            file_path=save_path,
+            post_url="-",
+            tags=content,
+            tags_vector=embedding,
             swatch_vector=None,
             timestamp=int(time.time()),
-            userid=current_user.id,
+            user_id=current_user.id,
         )
         session.add(entry)
         session.commit()
@@ -668,8 +679,8 @@ def query(current_user):
     query_vector = call_vec_api(cleaned_query) if cleaned_query else None
 
     # Build SELECT fields
-    select_fields = ["imagepath", "posturl", "response", "timestamp"]
-    where_clauses = [f"userid = '{userid}'"]
+    select_fields = ["file_path", "post_url", "tags", "timestamp"]
+    where_clauses = [f"user_id = '{userid}'"]
     order_by_clauses = []
 
     # Add color vector filter
@@ -682,7 +693,7 @@ def query(current_user):
     # Add content vector filter
     if query_vector:
         logger.info("Detected content input")
-        select_fields.append(f"embedding <=> '{query_vector}' AS semantic_distance")
+        select_fields.append(f"tags_vector <=> '{query_vector}' AS semantic_distance")
         order_by_clauses.append("semantic_distance ASC")
 
     # Time filter
@@ -706,9 +717,9 @@ def query(current_user):
     return jsonify({
         "results": [
             {
-                "image_path": f"{os.path.basename(r[0])}",
+                "file_path": f"{os.path.basename(r[0])}",
                 "post_url": r[1],
-                "image_text": r[2],
+                "tags_text": r[2],
                 "timestamp_str": int(r[3]),
             }
             for r in result
@@ -745,8 +756,8 @@ def check(current_user):
     query_vector = call_vec_api(cleaned_query) if cleaned_query else None
 
     # Build SELECT fields
-    select_fields = ["imagepath", "posturl", "response", "timestamp"]
-    where_clauses = [f"userid = '{user.id}'"]
+    select_fields = ["file_path", "post_url", "tags", "timestamp"]
+    where_clauses = [f"user_id = '{user.id}'"]
     order_by_clauses = []
 
     # Add color vector filter
@@ -759,7 +770,7 @@ def check(current_user):
     # Add content vector filter
     if query_vector:
         logger.info("Detected content input")
-        select_fields.append(f"embedding <=> '{query_vector}' AS semantic_distance")
+        select_fields.append(f"tags_vector <=> '{query_vector}' AS semantic_distance")
         order_by_clauses.append("semantic_distance ASC")
 
     # Time filter
@@ -789,3 +800,4 @@ def check(current_user):
             "query": query_text,
         }
     }), 200
+# endregion
