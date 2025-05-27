@@ -359,7 +359,7 @@ def upload_image(current_user):
         # Send to OpenAI for processing
         content = call_llm_api(
             sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64 = IMAGE_BASE64
+            image_b64_list = IMAGE_BASE64
         )
 
         # Create embedding
@@ -431,7 +431,7 @@ def upload_imageurl(current_user):
 
         content = call_llm_api(
             sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64 = IMAGE_BASE64
+            image_b64_list = IMAGE_BASE64
         )
         embedding = call_vec_api(content)
         swatch_vector = extract_distinct_colors(final_filepath)
@@ -478,16 +478,11 @@ def upload_text(current_user):
             selected_text = content
             
             # Final filename and move
-            temp_filename = f"{uuid.uuid4().hex}.png"
-            temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-            generate_text_image(selected_text, temp_path, font_path='assets/venus_cormier.otf')
-
-            # Downscale and save to final path
-            processed_path = preprocess_image(temp_path)
-            final_filename = secure_filename(f"{uuid.uuid4().hex}.png")
+            final_filename = secure_filename(f"{uuid.uuid4().hex}.txt")
             final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
-            os.rename(processed_path, final_filepath)
-            logger.info(f"Saved text-rendered image to: {final_filepath}\n")
+            with open(final_filepath, "w") as f:
+                f.write(selected_text)
+            logger.info(f"Saved text to: {final_filepath}\n")
 
             # Create embedding
             embedding = call_vec_api(selected_text)
@@ -506,7 +501,7 @@ def upload_text(current_user):
             session.add(entry)
             session.commit()
 
-            return jsonify({'status': 'success', 'message': 'Text processed into image successfully'})
+            return jsonify({'status': 'success', 'message': 'Text processed successfully'})
         elif parse_type == "url":
             url = content
             logger.info(f"Received URL: {url}\n")

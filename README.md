@@ -128,7 +128,6 @@
 ## Tasks
 
 ### To-Do
-- [ ] Add pdf support?
 - [ ] Add logic to auto reindex vector db
 - [ ] Add logic to avoid network block on sites
 - [ ] Add logic to use redis celery for browser work
@@ -138,6 +137,7 @@
 - [ ] Look into double tap gesture for launching something
 
 ### Done
+- [x] Add pdf support?
 - [x] Add text saving endpoint
 - [x] Add systemd service and nginx config contents into files
 - [x] Add better docs and README
