@@ -170,13 +170,6 @@ def restrict_headers():
 # endregion
 
 #region endpoints
-@app.route('/api/hello', methods=['GET'])
-@limiter.limit("1 per second")
-def hello():
-    log_text = f"Received hello request from {get_ip()}\n"
-    logger.info(log_text)
-    return jsonify({"message": log_text})
-
 @app.route('/api/refresh_token', methods=['POST'])
 @limiter.limit("2 per second")
 def refresh_token():
@@ -285,51 +278,6 @@ def update_username(current_user):
         session.close()
     
     return jsonify({'message': 'Username updated'}), 200
-
-@app.route('/api/delete/image', methods=['POST'])
-@limiter.limit("1 per second")
-@token_required
-def delete_image(current_user):
-    try:
-        logger.info("\nReceived request to delete image\n")
-
-        image_name = request.form['image_name']
-        if not image_name:
-            return jsonify({'status': 'error', 'message': 'No image_name provided.'}), 400
-        image_path = os.path.join(app.config['UPLOAD_FOLDER'], image_name)
-        logger.info(f"Received image_path: {image_path}\n")
-
-        # Check if the user exists
-        session = Session()
-        user = session.query(User).get(current_user.id)
-        if not user:
-            logger.error(f"User {user.username} not found.\n")
-            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
-        
-        # Find entry with this image path and user ID
-        entry = session.query(DataEntry).filter_by(file_path=image_path, user_id=user.id).first()
-        if not entry:
-            logger.warning(f"No entry found for image_path: {image_path}")
-            return jsonify({"status": "error", "message": "No matching image entry found."}), 404
-
-        # Delete the image file if it exists
-        if os.path.exists(image_path):
-            os.remove(image_path)
-            logger.info(f"Deleted image file: {image_path}")
-        else:
-            logger.warning(f"Image file not found at path: {image_path}")
-
-        # Delete the database entry
-        session.delete(entry)
-        session.commit()
-        session.close()
-
-        return jsonify({'status': 'success', 'message': 'Deleted image successfully'})
-    
-    except Exception as e:
-        logger.error("ERROR:", str(e))
-        traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/upload/image', methods=['POST'])
 @limiter.limit("1 per second")
@@ -541,7 +489,7 @@ def upload_text(current_user):
             # Send to OpenAI for processing
             content = call_llm_api(
                 sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
-                image_b64 = IMAGE_BASE64
+                image_b64_list = IMAGE_BASE64
             )
 
             # Create embedding
@@ -581,8 +529,7 @@ def upload_pdf(current_user):
     if not file:
         return jsonify({"status": "error", "message": "No PDF uploaded"}), 400
 
-    filename = secure_filename(file.filename)
-    timestamped_filename = f"{os.path.splitext(filename)[0]}_{int(time.time())}.pdf"
+    timestamped_filename = f"{file.filename}_{int(time.time())}.pdf"
     save_path = os.path.join(app.config["UPLOAD_FOLDER"], timestamped_filename)
     file.save(save_path)
 
@@ -591,16 +538,16 @@ def upload_pdf(current_user):
         if not image_b64_list:
             return jsonify({"status": "error", "message": "No pages found in PDF"}), 400
 
-        # ✅ Send all pages to LLM
+        # Send all pages to LLM
         content = call_llm_api(
             sysprompt=IMAGE_PREPROCESS_SYSTEM_PROMPT,
             image_b64_list=image_b64_list
         )
 
-        # ✅ Create embedding
+        # Create embedding
         embedding = call_vec_api(content)
 
-        # ✅ Save to DB
+        # Save to DB
         session = Session()
         entry = DataEntry(
             file_path=save_path,
@@ -620,11 +567,56 @@ def upload_pdf(current_user):
         logger.error(f"Error processing PDF: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/api/get_image/<filename>')
+@app.route('/api/delete/file', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def delete_file(current_user):
+    try:
+        logger.info("\nReceived request to delete file\n")
+
+        file_name = request.form['file_name']
+        if not file_name:
+            return jsonify({'status': 'error', 'message': 'No file_name provided.'}), 400
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
+        logger.info(f"Received file_path: {file_path}\n")
+
+        # Check if the user exists
+        session = Session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            logger.error(f"User {user.username} not found.\n")
+            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+        
+        # Find entry with this file path and user ID
+        entry = session.query(DataEntry).filter_by(file_path=file_path, user_id=user.id).first()
+        if not entry:
+            logger.warning(f"No entry found for file_path: {file_path}")
+            return jsonify({"status": "error", "message": "No matching file entry found."}), 404
+
+        # Delete the file if it exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Deleted file: {file_path}")
+        else:
+            logger.warning(f"File not found at path: {file_path}")
+
+        # Delete the database entry
+        session.delete(entry)
+        session.commit()
+        session.close()
+
+        return jsonify({'status': 'success', 'message': 'Deleted file successfully'})
+    
+    except Exception as e:
+        logger.error("ERROR:", str(e))
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/get_file/<filename>')
 @limiter.limit("5 per second;30 per minute")
 @token_required
-def get_image(current_user, filename):
-    logger.info(f"Received request to get image: {filename}\n")
+def get_file(current_user, filename):
+    logger.info(f"Received request to get file: {filename}\n")
     
     # Check if the user exists
     session = Session()
@@ -637,9 +629,9 @@ def get_image(current_user, filename):
     filename = secure_filename(filename)
 
     # Confirm the image exists in that user's folder
-    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    logger.info(f"image_path: {image_path}\n")
-    if not os.path.exists(image_path):
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    logger.info(f"file_path: {file_path}\n")
+    if not os.path.exists(file_path):
         abort(404)
 
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -717,7 +709,7 @@ def query(current_user):
     return jsonify({
         "results": [
             {
-                "file_path": f"{os.path.basename(r[0])}",
+                "file_name": f"{os.path.basename(r[0])}",
                 "post_url": r[1],
                 "tags_text": r[2],
                 "timestamp_str": int(r[3]),
