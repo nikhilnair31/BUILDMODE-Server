@@ -19,7 +19,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from image import (
     extract_distinct_colors,
-    generate_text_image,
     generate_img_b64_list
 )
 from browser import (
@@ -32,6 +31,7 @@ from parser import (
     parse_url_or_text,
     parse_time_input,
     extract_color_code,
+    timezone_to_start_of_day_ts,
     clean_text_of_color_and_time,
     rgb_to_vec
 )
@@ -42,7 +42,8 @@ from ai import (
 from models import (
     Base,
     DataEntry,
-    User
+    User,
+    Tier
 )
 from functools import (
     wraps, 
@@ -56,7 +57,7 @@ from flask import (
     send_from_directory
 )
 
-#region initialization
+#region Initialization
 load_dotenv()
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -99,16 +100,25 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
 Base.metadata.create_all(bind=engine)
 # endregion
 
-#region helpers
+#region Helpers
 def get_ip():
     # logger.info(f"request.headers: {dict(request.headers)}\n")
     forwarded_for = request.headers.get('X-Forwarded-For', '')
     ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
     logger.info(f"Detected IP: {ip}")
     return ip
+def get_uploads_today(user_id, start_ts):
+    session = Session()
+    try:
+        return session.query(DataEntry).filter(
+            DataEntry.user_id == user_id,
+            DataEntry.timestamp >= start_ts
+        ).count()
+    finally:
+        session.close()
 # endregion
 
-#region wrappers
+#region Wrappers
 def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -141,18 +151,44 @@ def token_required(f):
 
         return f(user, *args, **kwargs)
     return wrapper
+def save_limit_required(f):
+    @wraps(f)
+    def wrapper(current_user, *args, **kwargs):
+        session = Session()
+        try:
+            tier = session.query(Tier).get(current_user.tier_id)
+            if not tier:
+                return jsonify({'message': 'Invalid user tier'}), 403
+            logger.info(f"User {current_user.username} has tier: {tier.name}\n")
+        
+            # Get timezone from header (default to UTC)
+            tz_name = request.headers.get("X-Timezone", "UTC")
+            start_of_day_ts = timezone_to_start_of_day_ts(tz_name)
+            logger.info(f"Start of day timestamp: {start_of_day_ts}\n")
+
+            uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
+            logger.info(f"Uploads today for {current_user.username}: {uploads_today}\n")
+
+            if uploads_today >= tier.daily_limit:
+                return jsonify({
+                    'message': f'Daily upload limit reached ({tier.daily_limit} per day for {tier.name} tier).'
+                }), 403
+        finally:
+            session.close()
+        return f(current_user, *args, **kwargs)
+    return wrapper
 # endregion
 
-#region caching
+#region Caching
 @lru_cache(maxsize=512)
 def cached_call_vec_api(text):
     return call_vec_api(text)
 # endregion
 
-#region before request
+#region Before Request
 @app.before_request
 def restrict_headers():
-    if request.path.startswith("/api/get_image/"):
+    if request.path.startswith("/api/get_file/"):
         return
     
     user_agent = request.headers.get("User-Agent", "")
@@ -163,13 +199,13 @@ def restrict_headers():
     if "python" in user_agent.lower() or "postman" in user_agent.lower():
         return
 
-    # Require custom header (future Android use)
+    # Require custom header
     if not api_key or api_key != APP_SECRET_KEY:
         print(f"Rejected request with UA: {user_agent}, API key: {api_key}")
         abort(403, description="Forbidden: Invalid or missing headers.")
 # endregion
 
-#region endpoints
+#region Endpoints
 @app.route('/api/refresh_token', methods=['POST'])
 @limiter.limit("2 per second")
 def refresh_token():
@@ -279,9 +315,43 @@ def update_username(current_user):
     
     return jsonify({'message': 'Username updated'}), 200
 
+@app.route('/api/get_saves_left', methods=['GET'])
+@limiter.limit("2 per second")
+@token_required
+def get_saves_left(current_user):
+    session = Session()
+    try:
+        tier = session.query(Tier).get(current_user.tier_id)
+        logger.info(f"User {current_user.username} has tier: {tier.name}\n")
+        if not tier:
+            return jsonify({'message': 'Invalid user tier'}), 403
+        
+        # Get timezone from header (default to UTC)
+        tz_name = request.headers.get("X-Timezone", "UTC")
+        start_of_day_ts = timezone_to_start_of_day_ts(tz_name)
+        logger.info(f"Start of day timestamp: {start_of_day_ts}\n")
+
+        uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
+        logger.info(f"Uploads today for {current_user.username}: {uploads_today}\n")
+
+        remaining_uploads = max(0, tier.daily_limit - uploads_today)
+        logger.info(f"Remaining uploads for {current_user.username}: {remaining_uploads}\n")
+
+        return jsonify({
+            'tier': tier.name,
+            'daily_limit': tier.daily_limit,
+            'uploads_used': uploads_today,
+            'uploads_left': remaining_uploads,
+            'reset_in_seconds': int((start_of_day_ts + 86400) - time.time())
+        }), 200
+
+    finally:
+        session.close()
+
 @app.route('/api/upload/image', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
+@save_limit_required
 def upload_image(current_user):
     try:
         logger.info("\nReceived request to upload image\n")
@@ -351,6 +421,7 @@ def upload_image(current_user):
 @app.route('/api/upload/imageurl', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
+@save_limit_required
 def upload_imageurl(current_user):
     try:
         logger.info("\nReceived request to upload image from URL\n")
@@ -417,6 +488,7 @@ def upload_imageurl(current_user):
 @app.route('/api/upload/text', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
+@save_limit_required
 def upload_text(current_user):
     logger.info("\nReceived request to upload text\n")
 
@@ -524,6 +596,7 @@ def upload_text(current_user):
 @app.route('/api/upload/pdf', methods=['POST'])
 @limiter.limit("1 per second")
 @token_required
+@save_limit_required
 def upload_pdf(current_user):
     file = request.files.get("pdf")
     if not file:

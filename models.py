@@ -3,12 +3,14 @@ from werkzeug.security import (
     check_password_hash
 )
 from pgvector.sqlalchemy import Vector
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column, 
     Integer, 
     Float,
-    String
+    String,
+    ForeignKey
 )
 
 Base = declarative_base()
@@ -21,7 +23,9 @@ class User(Base):
     password_hash = Column(String)
     created_at = Column(Integer)
     updated_at = Column(Integer)
-    tier_id = Column(Integer, default=1)
+    tier_id = Column(Integer, ForeignKey('tiers.id'), default=1)
+
+    tier = relationship("Tier")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -40,3 +44,9 @@ class DataEntry(Base):
     swatch_vector = Column(Vector(30))
     timestamp = Column(Integer)
     user_id = Column(Integer)
+
+class Tier(Base):
+    __tablename__ = 'tiers'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    daily_limit = Column(Integer, nullable=False, default=10)

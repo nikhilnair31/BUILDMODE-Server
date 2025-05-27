@@ -1,4 +1,5 @@
 import re
+import pytz
 import logging
 import parsedatetime
 from datetime import datetime
@@ -14,6 +15,24 @@ DATE_HINT_REGEX = re.compile(
 
 # Fast calendar parser
 cal = parsedatetime.Calendar()
+
+def timezone_to_start_of_day_ts(tz_name):
+    try:
+        user_tz = pytz.timezone(tz_name)
+    except Exception as e:
+        logger.warning(f"Invalid timezone received: {tz_name}. Defaulting to UTC.")
+        user_tz = pytz.UTC
+
+    # Current time in user's timezone
+    now_local = datetime.now(user_tz)
+    logger.info(f"User's local time: {now_local}")
+
+    # Start of day in local time, then converted to UTC
+    start_of_day_local = user_tz.localize(datetime(now_local.year, now_local.month, now_local.day, 0, 0, 0))
+    start_of_day_utc = start_of_day_local.astimezone(pytz.UTC)
+    start_of_day_ts = int(start_of_day_utc.timestamp())
+
+    return start_of_day_ts
 
 def parse_url_or_text(text):
     logger.info(f"Parsing URL or text: {text}")

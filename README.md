@@ -102,7 +102,9 @@
 ## Tasks
 
 ### To-Do
-- [ ] Check why links won't save right
+- [ ] Add save limits for users
+- [ ] Add thumbnail generation and saving to db
+- [ ] Adjust before request to contain app key and user agent for files api call too
 - [ ] Improve color system
 - [ ] Add logic to do similar content
 - [ ] Add logic to auto reindex vector db
@@ -114,6 +116,7 @@
 - [ ] Look into double tap gesture for launching something
 
 ### Done
+- [x] Check why links won't save right
 - [x] Add pdf support?
 - [x] Add text saving endpoint
 - [x] Add systemd service and nginx config contents into files
