@@ -240,18 +240,24 @@ def refresh_token():
 @limiter.limit("1 per second")
 def register():
     data = request.get_json()
+    # logger.info(f"Received registration data: {data}\n")
+
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    timezone = data.get('timezone', '').strip()
     
     session = Session()
-    if session.query(User).filter_by(username=data['username']).first():
-        logger.error(f"User {data['username']} already exists.\n")
+    if session.query(User).filter_by(username=username).first():
+        logger.error(f"User {username} already exists.\n")
         return jsonify({'message': 'Username already exists'}), 400
 
     new_user = User(
-        username=data['username'],
+        username=username,
+        timezone=timezone,
         created_at=int(time.time()),
         updated_at=int(time.time())
     )
-    new_user.set_password(data['password'])
+    new_user.set_password(password)
 
     session.add(new_user)
     session.commit()

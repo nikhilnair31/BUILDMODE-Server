@@ -20,6 +20,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True)
+    timezone = Column(String, default='UTC')
     password_hash = Column(String)
     created_at = Column(Integer)
     updated_at = Column(Integer)
