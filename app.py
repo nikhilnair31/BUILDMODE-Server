@@ -3,15 +3,17 @@ import jwt
 import time
 import uuid
 import base64
+import zipfile
 import logging
 import tempfile
 import datetime
 import warnings
 import traceback
 import requests
+from io import BytesIO
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import text, create_engine
+from sqlalchemy import select, text, create_engine
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_cors import CORS
@@ -54,6 +56,7 @@ from flask import (
     request, 
     jsonify,
     abort,
+    send_file,
     send_from_directory
 )
 
@@ -145,7 +148,7 @@ def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        # logger.info(f"Received token: {token}")
+        logger.info(f"Received token: {token}")
         if not token:
             logger.error("Token missing")
             return jsonify({'message': 'Token missing'}), 401
@@ -882,4 +885,33 @@ def check(current_user):
             "query": query_text,
         }
     }), 200
+
+@app.route('/api/bulk_download_all', methods=['GET'])
+@limiter.limit("1 per second")
+@token_required
+def bulk_download_all(current_user):
+    session = Session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        return jsonify({"error": "Invalid user"}), 404
+
+    # Query all data entries for the user
+    user_files = session.execute(
+        select(DataEntry).where(DataEntry.user_id == user.id)
+    ).scalars().all()
+    logger.info(f"Found {len(user_files)} files for user {user.username}\n")
+
+    if not user_files:
+        return {"message": "No files found"}, 404
+
+    memory_file = BytesIO()
+    with zipfile.ZipFile(memory_file, 'w') as zf:
+        for file in user_files:
+            path = file.file_path
+            if os.path.exists(path):
+                arcname = os.path.basename(path)
+                zf.write(path, arcname=arcname)
+
+    memory_file.seek(0)
+    return send_file(memory_file, download_name="FORGOR_backup.zip", as_attachment=True)
 # endregion
