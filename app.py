@@ -115,16 +115,8 @@ def get_ip():
     ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
     logger.info(f"Detected IP: {ip}")
     return ip
-def get_uploads_today(user_id, start_ts):
-    session = Session()
-    try:
-        return session.query(DataEntry).filter(
-            DataEntry.user_id == user_id,
-            DataEntry.timestamp >= start_ts
-        ).count()
-    finally:
-        session.close()
 def get_user_upload_info(current_user):
+    logger.info(f"Getting upload info for user: {current_user.username}\n")
     session = Session()
     try:
         tier = session.query(Tier).get(current_user.tier_id)
@@ -132,17 +124,24 @@ def get_user_upload_info(current_user):
             return None, jsonify({'message': 'Invalid user tier'}), 403, session
         
         start_of_day_ts = timezone_to_start_of_day_ts(current_user.timezone)
-        uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
-        remaining_uploads = max(0, tier.daily_limit - uploads_today)
+        uploads_today = session.query(DataEntry).filter(
+            DataEntry.user_id == current_user.id,
+            DataEntry.timestamp >= start_of_day_ts
+        ).count()
+        uploads_left = max(0, tier.daily_limit - uploads_today)
         reset_in_seconds = int((start_of_day_ts + 86400) - time.time())
-        
-        return {
-            'tier': tier,
+
+        output = {
+            'tier_name': tier.name,
+            'daily_limit': tier.daily_limit,
             'uploads_today': uploads_today,
-            'remaining_uploads': remaining_uploads,
+            'uploads_left': uploads_left,
             'reset_in_seconds': reset_in_seconds,
             'start_of_day_ts': start_of_day_ts,
-        }, None, None, session
+        }
+        # logger.info(f"output: {output}\n")
+        
+        return output, None, None, session
     except Exception as e:
         session.close()
         raise e
@@ -153,7 +152,6 @@ def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        # logger.info(f"Received token: {token}")
         if not token:
             logger.error("Token missing")
             return jsonify({'message': 'Token missing'}), 401
@@ -363,18 +361,7 @@ def get_saves_left(current_user):
         return error_response, status_code
 
     try:
-        logger.info(f"User {current_user.username} has tier: {info['tier'].name}\n")
-        logger.info(f"Start of day timestamp: {info['start_of_day_ts']}\n")
-        logger.info(f"Uploads today: {info['uploads_today']}\n")
-        logger.info(f"Remaining uploads: {info['remaining_uploads']}\n")
-
-        return jsonify({
-            'tier': info['tier'].name,
-            'daily_limit': info['tier'].daily_limit,
-            'uploads_used': info['uploads_today'],
-            'uploads_left': info['remaining_uploads'],
-            'reset_in_seconds': info['reset_in_seconds']
-        }), 200
+        return jsonify(info), 200
     finally:
         session.close()
 
