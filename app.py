@@ -116,6 +116,28 @@ def get_uploads_today(user_id, start_ts):
         ).count()
     finally:
         session.close()
+def get_user_upload_info(current_user):
+    session = Session()
+    try:
+        tier = session.query(Tier).get(current_user.tier_id)
+        if not tier:
+            return None, jsonify({'message': 'Invalid user tier'}), 403, session
+        
+        start_of_day_ts = timezone_to_start_of_day_ts(current_user.timezone)
+        uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
+        remaining_uploads = max(0, tier.daily_limit - uploads_today)
+        reset_in_seconds = int((start_of_day_ts + 86400) - time.time())
+        
+        return {
+            'tier': tier,
+            'uploads_today': uploads_today,
+            'remaining_uploads': remaining_uploads,
+            'reset_in_seconds': reset_in_seconds,
+            'start_of_day_ts': start_of_day_ts,
+        }, None, None, session
+    except Exception as e:
+        session.close()
+        raise e
 # endregion
 
 #region Wrappers
@@ -154,27 +176,23 @@ def token_required(f):
 def save_limit_required(f):
     @wraps(f)
     def wrapper(current_user, *args, **kwargs):
-        session = Session()
-        try:
-            tier = session.query(Tier).get(current_user.tier_id)
-            if not tier:
-                return jsonify({'message': 'Invalid user tier'}), 403
-            logger.info(f"User {current_user.username} has tier: {tier.name}\n")
+        info, error_response, status_code, session = get_user_upload_info(current_user)
+        if error_response:
+            session.close()
+            return error_response, status_code
         
-            # Get timezone from header (default to UTC)
-            start_of_day_ts = timezone_to_start_of_day_ts(current_user.timezone)
-            logger.info(f"Start of day timestamp: {start_of_day_ts}\n")
+        try:
+            logger.info(f"User {current_user.username} has tier: {info['tier'].name}\n")
+            logger.info(f"Start of day timestamp: {info['start_of_day_ts']}\n")
+            logger.info(f"Uploads today: {info['uploads_today']}\n")
 
-            uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
-            logger.info(f"Uploads today for {current_user.username}: {uploads_today}\n")
-
-            if uploads_today >= tier.daily_limit:
+            if info['uploads_today'] >= info['tier'].daily_limit:
                 return jsonify({
-                    'message': f'Daily upload limit reached ({tier.daily_limit} per day for {tier.name} tier).'
+                    'message': f'Daily upload limit reached ({info["tier"].daily_limit} per day for {info["tier"].name} tier).'
                 }), 403
+            return f(current_user, *args, **kwargs)
         finally:
             session.close()
-        return f(current_user, *args, **kwargs)
     return wrapper
 # endregion
 
@@ -324,31 +342,24 @@ def update_username(current_user):
 @limiter.limit("2 per second")
 @token_required
 def get_saves_left(current_user):
-    session = Session()
+    info, error_response, status_code, session = get_user_upload_info(current_user)
+    if error_response:
+        session.close()
+        return error_response, status_code
+
     try:
-        tier = session.query(Tier).get(current_user.tier_id)
-        logger.info(f"User {current_user.username} has tier: {tier.name}\n")
-        if not tier:
-            return jsonify({'message': 'Invalid user tier'}), 403
-        
-        # Get timezone from header (default to UTC)
-        start_of_day_ts = timezone_to_start_of_day_ts(current_user.timezone)
-        logger.info(f"Start of day timestamp: {start_of_day_ts}\n")
-
-        uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
-        logger.info(f"Uploads today for {current_user.username}: {uploads_today}\n")
-
-        remaining_uploads = max(0, tier.daily_limit - uploads_today)
-        logger.info(f"Remaining uploads for {current_user.username}: {remaining_uploads}\n")
+        logger.info(f"User {current_user.username} has tier: {info['tier'].name}\n")
+        logger.info(f"Start of day timestamp: {info['start_of_day_ts']}\n")
+        logger.info(f"Uploads today: {info['uploads_today']}\n")
+        logger.info(f"Remaining uploads: {info['remaining_uploads']}\n")
 
         return jsonify({
-            'tier': tier.name,
-            'daily_limit': tier.daily_limit,
-            'uploads_used': uploads_today,
-            'uploads_left': remaining_uploads,
-            'reset_in_seconds': int((start_of_day_ts + 86400) - time.time())
+            'tier': info['tier'].name,
+            'daily_limit': info['tier'].daily_limit,
+            'uploads_used': info['uploads_today'],
+            'uploads_left': info['remaining_uploads'],
+            'reset_in_seconds': info['reset_in_seconds']
         }), 200
-
     finally:
         session.close()
 
