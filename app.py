@@ -12,6 +12,8 @@ import warnings
 import traceback
 import requests
 from io import BytesIO
+from hashlib import sha256
+from cachetools import TTLCache
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, text, create_engine
@@ -96,6 +98,8 @@ app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 engine = create_engine(ENGINE_URL)
 Session = sessionmaker(bind=engine)
+
+query_cache = TTLCache(maxsize=1000, ttl=300)
 
 # Allow all origins for now, or restrict to your frontend domain
 CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
@@ -201,6 +205,13 @@ def save_limit_required(f):
 # endregion
 
 #region Caching
+def get_cache_key(user_id, query_text):
+    return sha256(f"{user_id}:{query_text}".encode()).hexdigest()
+def clear_user_cache(user_id):
+    keys_to_remove = [k for k in query_cache.keys() if k.startswith(f"{user_id}:")]
+    for k in keys_to_remove:
+        del query_cache[k]
+
 @lru_cache(maxsize=512)
 def cached_call_vec_api(text):
     return call_vec_api(text)
@@ -431,6 +442,9 @@ def upload_image(current_user):
         session.add(entry)
         session.commit()
 
+        # Clear cache for this user
+        clear_user_cache(current_user.id)
+
         return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'})
     
     except Exception as e:
@@ -499,6 +513,9 @@ def upload_imageurl(current_user):
         session.add(entry)
         session.commit()
 
+        # Clear cache for this user
+        clear_user_cache(current_user.id)
+
         return jsonify({'status': 'success', 'message': 'Image from URL processed successfully'})
     
     except Exception as e:
@@ -553,6 +570,9 @@ def upload_text(current_user):
             session.add(entry)
             session.commit()
 
+            # Clear cache for this user
+            clear_user_cache(current_user.id)
+
             return jsonify({'status': 'success', 'message': 'Text processed successfully'})
         elif parse_type == "url":
             url = content
@@ -605,6 +625,9 @@ def upload_text(current_user):
             session.add(entry)
             session.commit()
 
+            # Clear cache for this user
+            clear_user_cache(current_user.id)
+
             return jsonify({'status': 'success', 'message': 'URL processed successfully'})
         else:
             return jsonify({'status': 'error', 'message': 'Invalid input provided.'}), 400
@@ -655,6 +678,9 @@ def upload_pdf(current_user):
         session.add(entry)
         session.commit()
 
+        # Clear cache for this user
+        clear_user_cache(current_user.id)
+
         return jsonify({"status": "success", "message": "PDF uploaded and processed"})
 
     except Exception as e:
@@ -699,6 +725,9 @@ def delete_file(current_user):
         session.commit()
         session.close()
 
+        # Clear cache for this user
+        clear_user_cache(current_user.id)
+
         return jsonify({'status': 'success', 'message': 'Deleted file successfully'})
     
     except Exception as e:
@@ -742,6 +771,11 @@ def query(current_user):
     query_text = data.get("searchText", "").strip()
     if not query_text:
         return jsonify({"error": "searchText required"}), 400
+    
+    cache_key = get_cache_key(current_user.id, query_text)
+    if cache_key in query_cache:
+        logger.info("Serving /api/query from cache.")
+        return jsonify(query_cache[cache_key])
     
     session = Session()
     user = session.query(User).get(current_user.id)
@@ -800,7 +834,7 @@ def query(current_user):
     result = session.execute(sql).fetchall()
     logger.info(f"len result: {len(result)}\n")
 
-    return jsonify({
+    result_json = {
         "results": [
             {
                 "file_name": f"{os.path.basename(r[0])}",
@@ -810,7 +844,12 @@ def query(current_user):
             }
             for r in result
         ]
-    })
+    }
+
+    # ✅ Save the result in cache
+    query_cache[cache_key] = result_json
+
+    return jsonify(result_json)
 
 @app.route('/api/check', methods=['POST'])
 @limiter.limit("1 per second")
