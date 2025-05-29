@@ -162,8 +162,7 @@ def save_limit_required(f):
             logger.info(f"User {current_user.username} has tier: {tier.name}\n")
         
             # Get timezone from header (default to UTC)
-            tz_name = request.headers.get("X-Timezone", "UTC")
-            start_of_day_ts = timezone_to_start_of_day_ts(tz_name)
+            start_of_day_ts = timezone_to_start_of_day_ts(current_user.timezone)
             logger.info(f"Start of day timestamp: {start_of_day_ts}\n")
 
             uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
@@ -333,8 +332,7 @@ def get_saves_left(current_user):
             return jsonify({'message': 'Invalid user tier'}), 403
         
         # Get timezone from header (default to UTC)
-        tz_name = request.headers.get("X-Timezone", "UTC")
-        start_of_day_ts = timezone_to_start_of_day_ts(tz_name)
+        start_of_day_ts = timezone_to_start_of_day_ts(current_user.timezone)
         logger.info(f"Start of day timestamp: {start_of_day_ts}\n")
 
         uploads_today = get_uploads_today(current_user.id, start_of_day_ts)
