@@ -8,25 +8,42 @@ MAX_SIZE_BYTES = 512000  # 500 KB
 def compress_image(input_path, output_path, file_ext):
     try:
         img = Image.open(input_path)
+
+        # Convert to RGB to avoid mode issues (like RGBA or P)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
         img_format = img.format or file_ext.replace('.', '').upper()
 
         if file_ext.lower() in ['.jpg', '.jpeg']:
             quality = 85
-            while quality > 10:
-                buffer = BytesIO()
-                img.save(buffer, format=img_format, quality=quality)
-                if buffer.tell() <= MAX_SIZE_BYTES:
-                    with open(output_path, 'wb') as f:
-                        f.write(buffer.getvalue())
-                    return True
-                quality -= 5
+            scale = 1.0
+            while scale > 0.1:
+                new_size = (int(img.width * scale), int(img.height * scale))
+                resized_img = img.resize(new_size, Image.LANCZOS)
+                temp_quality = quality
+                while temp_quality > 10:
+                    buffer = BytesIO()
+                    resized_img.save(
+                        buffer,
+                        format=img_format,
+                        quality=temp_quality,
+                        optimize=True,
+                        exif=b''  # Strip metadata
+                    )
+                    if buffer.tell() <= MAX_SIZE_BYTES:
+                        with open(output_path, 'wb') as f:
+                            f.write(buffer.getvalue())
+                        return True
+                    temp_quality -= 5
+                scale -= 0.1
 
         elif file_ext.lower() == '.png':
             # Try reducing size
             scale = 1.0
             while scale > 0.1:
                 new_size = (int(img.width * scale), int(img.height * scale))
-                resized_img = img.resize(new_size, Image.ANTIALIAS)
+                resized_img = img.resize(new_size, Image.LANCZOS)
                 buffer = BytesIO()
                 resized_img.save(buffer, format='PNG', optimize=True)
                 if buffer.tell() <= MAX_SIZE_BYTES:
