@@ -1,5 +1,6 @@
 import os
 import jwt
+import json
 import time
 import uuid
 import base64
@@ -148,7 +149,7 @@ def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        logger.info(f"Received token: {token}")
+        # logger.info(f"Received token: {token}")
         if not token:
             logger.error("Token missing")
             return jsonify({'message': 'Token missing'}), 401
@@ -904,8 +905,24 @@ def bulk_download_all(current_user):
     if not user_files:
         return {"message": "No files found"}, 404
 
+    # Prepare JSON metadata
+    master_data = []
+    for file in user_files:
+        master_data.append({
+            "id": file.id,
+            "file_path": file.file_path,
+            "post_url": file.post_url,
+            "tags": file.tags,
+            "timestamp": file.timestamp,
+            "user_id": file.user_id
+        })
+
     memory_file = BytesIO()
     with zipfile.ZipFile(memory_file, 'w') as zf:
+        # Write master.json
+        zf.writestr("master.json", json.dumps(master_data, indent=2))
+
+        # Add files in subfolder 'files/'
         for file in user_files:
             path = file.file_path
             if os.path.exists(path):
