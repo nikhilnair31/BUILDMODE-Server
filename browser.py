@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def screenshot_url(url, path="screenshot.png", wait_seconds=3):
+def screenshot_url(url, path="screenshot.jpg", wait_seconds=3):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)  # 👈 headless=False to seem real
         context = browser.new_context(

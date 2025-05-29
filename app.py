@@ -382,15 +382,16 @@ def upload_image(current_user):
             logger.error(f"User {user.username} not found.\n")
             return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
 
-        ext = os.path.splitext(file.filename)[1]
+        file_ext = os.path.splitext(file.filename)[1]
         logger.info(f"Recived filename: {file.filename}")
         # Save the original temporarily
-        temp_filename  = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        temp_filename  = secure_filename(f"{uuid.uuid4().hex}{file_ext}")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
         file.save(temp_path)
         # Downscale and save final image
         processed_path = preprocess_image(temp_path)
         # Final filename
+        ext = ".jpg"
         final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
         final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
         # Move temp to final location
@@ -457,10 +458,11 @@ def upload_imageurl(current_user):
         if response.status_code != 200:
             raise Exception(f"Failed to fetch image from URL: {image_url}")
 
-        ext = os.path.splitext(image_url)[1]
-        if ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
-            ext = ".jpg"
-
+        url_ext = os.path.splitext(image_url)[1]
+        if url_ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
+            raise Exception(f"Unsupported image format: {url_ext}. Only PNG, JPG, JPEG, and WEBP are allowed.")
+        
+        ext = ".jpg"
         temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
 
@@ -553,7 +555,7 @@ def upload_text(current_user):
             logger.info(f"Received URL: {url}\n")
             
             # Take screenshot
-            ext = ".png"
+            ext = ".jpg"
             temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
             temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
 

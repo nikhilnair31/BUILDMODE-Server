@@ -8,13 +8,14 @@ def preprocess_image(file_path):
     img = Image.open(file_path).convert("RGB")
     buffer = io.BytesIO()
 
+    max_size_kb = 500  # Target size in KB
     quality = 85  # Start with decent quality
 
     while True:
         buffer.seek(0)
         img.save(buffer, format="JPEG", quality=quality)
         size_kb = buffer.tell() / 1024
-        if size_kb <= 150 or quality <= 50:
+        if size_kb <= max_size_kb or quality <= 50:
             break
         quality -= 5
 
