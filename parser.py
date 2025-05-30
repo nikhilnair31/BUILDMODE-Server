@@ -1,3 +1,5 @@
+# parser.py
+
 import re
 import pytz
 import logging
@@ -7,13 +9,11 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Regex pre-check to avoid parsing random strings
 DATE_HINT_REGEX = re.compile(
     r"(yesterday|today|ago|last|next|week|month|year|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+|\d{4})",
     flags=re.IGNORECASE
 )
 
-# Fast calendar parser
 cal = parsedatetime.Calendar()
 
 def timezone_to_start_of_day_ts(tz_name):

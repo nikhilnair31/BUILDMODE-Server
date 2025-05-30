@@ -221,10 +221,10 @@ def token_required(f):
 def save_limit_required(f):
     @wraps(f)
     def wrapper(current_user, *args, **kwargs):
-        info, error_response, status_code, session = get_user_upload_info(current_user)
-        if error_response:
+        info, error, status_code, session = get_user_upload_info(current_user)
+        if error:
             session.close()
-            return error_response, status_code
+            return error, status_code
         
         try:
             if info['uploads_left'] <= 0:
@@ -564,7 +564,7 @@ def upload_text(current_user):
     logger.info("\nReceived request to upload text\n")
 
     try:
-        text = request.form['text']
+        selected_text = request.form['text']
 
         # Check if the user exists
         session = Session()
@@ -573,110 +573,123 @@ def upload_text(current_user):
             e = f"User ID {current_user.id} not found"
             logger.error(e)
             return error_response(e, 404)
-        logger.info(f"Received from {user.username} a text: {text}\n")
-
-        # Parse URL or text
-        parse_type, content = parse_url_or_text(text)
-        if parse_type == "text":
-            selected_text = content
-            
-            # Final filename and move
-            file_uuid_token = uuid.uuid4().hex
-            final_filename = secure_filename(f"{file_uuid_token}.txt")
-            final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
-            with open(final_filepath, "w") as f:
-                f.write(selected_text)
-            logger.info(f"Saved text to: {final_filepath}\n")
+        logger.info(f"Received from {user.username} a text: {selected_text}\n")
         
-            # Generate and save thumbnail
-            thumbnail_uuid_token = uuid.uuid4().hex
-            thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
+        # Final filename and move
+        file_uuid_token = uuid.uuid4().hex
+        final_filename = secure_filename(f"{file_uuid_token}.txt")
+        final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
+        with open(final_filepath, "w") as f:
+            f.write(selected_text)
+        logger.info(f"Saved text to: {final_filepath}\n")
+    
+        # Generate and save thumbnail
+        thumbnail_uuid_token = uuid.uuid4().hex
+        thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
 
-            # Create embedding
-            embedding = call_vec_api(selected_text)
+        # Create embedding
+        embedding = call_vec_api(selected_text)
 
-            # Save to database
-            session = Session()
-            entry = DataEntry(
-                file_path=final_filepath, 
-                thumbnail_path=thumbnail_rel_path,
-                post_url="-",
-                tags=selected_text, 
-                tags_vector=embedding,
-                swatch_vector=None,  # No color swatch for text
-                timestamp=int(time.time()),
-                user_id=user.id,
-            )
-            session.add(entry)
-            session.commit()
+        # Save to database
+        session = Session()
+        entry = DataEntry(
+            file_path=final_filepath, 
+            thumbnail_path=thumbnail_rel_path,
+            post_url="-",
+            tags=selected_text, 
+            tags_vector=embedding,
+            swatch_vector=None,  # No color swatch for text
+            timestamp=int(time.time()),
+            user_id=user.id,
+        )
+        session.add(entry)
+        session.commit()
 
-            # Clear cache for this user
-            clear_user_cache(current_user.id)
+        # Clear cache for this user
+        clear_user_cache(current_user.id)
 
-            return jsonify({'status': 'success', 'message': 'Text processed successfully'})
-        elif parse_type == "url":
-            url = content
-            logger.info(f"Received URL: {url}\n")
-            
-            # Take screenshot
-            file_uuid_token = uuid.uuid4().hex
-            temp_filename = secure_filename(f"{file_uuid_token}.jpg")
-            temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+        return jsonify({'status': 'success', 'message': 'Text processed successfully'})
 
-            logger.info(f"Taking screenshot of {url}...")
-            screenshot_url(url, path=temp_path)
-            
-            # Downscale and save final image
-            processed_path = compress_image(open(temp_path, "rb"), app.config['UPLOAD_DIR'])
+    except Exception as e:
+        e = f"Error processing text upload: {e}"
+        logger.error(e)
+        traceback.print_exc()
+        return error_response(e, 500)
 
-            # Final filename and move
-            final_filename = secure_filename(f"{file_uuid_token}.jpg")
-            final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
-            os.rename(processed_path, final_filepath)
-            logger.info(f"Saved processed image to: {final_filepath}\n")
-        
-            # Generate and save thumbnail
-            thumbnail_uuid_token = uuid.uuid4().hex
-            thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
+@app.route('/api/upload/url', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+@save_limit_required
+def upload_url(current_user):
+    logger.info("\nReceived request to upload URL\n")
 
-            # Convert image to base64
-            IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
+    try:
+        url = request.form['url']
 
-            # Send to OpenAI for processing
-            content = call_llm_api(
-                sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
-                image_b64_list = IMAGE_BASE64
-            )
-
-            # Create embedding
-            embedding = call_vec_api(content)
-
-            # Extract distinct colors
-            swatch_vector = extract_distinct_colors(final_filepath)
-
-            # Save to database
-            session = Session()
-            entry = DataEntry(
-                file_path=final_filepath, 
-                thumbnail_path=thumbnail_rel_path,
-                post_url=url,
-                tags=content, 
-                tags_vector=embedding,
-                swatch_vector=swatch_vector,
-                timestamp=int(time.time()),
-                user_id=user.id,
-            )
-            session.add(entry)
-            session.commit()
-
-            # Clear cache for this user
-            clear_user_cache(current_user.id)
-
-            return jsonify({'status': 'success', 'message': 'URL processed successfully'})
-        else:
-            e = f"Invalid input type: {parse_type}. Only text or URL is allowed."
+        # Check if the user exists
+        session = Session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
             logger.error(e)
-            return error_response(e, 400)
+            return error_response(e, 404)
+        logger.info(f"Received from {user.username} a url: {url}\n")
+        
+        # Take screenshot
+        file_uuid_token = uuid.uuid4().hex
+        temp_filename = secure_filename(f"{file_uuid_token}.jpg")
+        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+
+        logger.info(f"Taking screenshot of {url}...")
+        screenshot_url(url, path=temp_path)
+        
+        # Downscale and save final image
+        processed_path = compress_image(open(temp_path, "rb"), app.config['UPLOAD_DIR'])
+
+        # Final filename and move
+        final_filename = secure_filename(f"{file_uuid_token}.jpg")
+        final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
+        os.rename(processed_path, final_filepath)
+        logger.info(f"Saved processed image to: {final_filepath}\n")
+    
+        # Generate and save thumbnail
+        thumbnail_uuid_token = uuid.uuid4().hex
+        thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
+
+        # Convert image to base64
+        IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
+
+        # Send to OpenAI for processing
+        content = call_llm_api(
+            sysprompt = IMAGE_PREPROCESS_SYSTEM_PROMPT,
+            image_b64_list = IMAGE_BASE64
+        )
+
+        # Create embedding
+        embedding = call_vec_api(content)
+
+        # Extract distinct colors
+        swatch_vector = extract_distinct_colors(final_filepath)
+
+        # Save to database
+        session = Session()
+        entry = DataEntry(
+            file_path=final_filepath, 
+            thumbnail_path=thumbnail_rel_path,
+            post_url=url,
+            tags=content, 
+            tags_vector=embedding,
+            swatch_vector=swatch_vector,
+            timestamp=int(time.time()),
+            user_id=user.id,
+        )
+        session.add(entry)
+        session.commit()
+
+        # Clear cache for this user
+        clear_user_cache(current_user.id)
+
+        return jsonify({'status': 'success', 'message': 'URL processed successfully'})
     
     except Exception as e:
         e = f"Error processing text upload: {e}"

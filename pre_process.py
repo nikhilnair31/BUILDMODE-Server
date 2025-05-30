@@ -9,10 +9,10 @@ from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw, ImageFont
 from pdf2image import convert_from_path
 
-PATTERN = rf'<tags>(.*?)<\/tags>'
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+PATTERN = rf'<tags>(.*?)<\/tags>'
 
 def compress_image(file, upload_dir):
     file_uuid = uuid.uuid4().hex
