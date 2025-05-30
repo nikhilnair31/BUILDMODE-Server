@@ -52,34 +52,6 @@ def extract_distinct_colors(image_path, num_clusters=30, num_colors=10, merge_th
     padded_rgb = flat_rgb + [0.0] * (3 * num_colors - len(flat_rgb))
     return padded_rgb
 
-def generate_text_image(text, output_path, font_path=None, font_size=24, width=800, padding=20):
-    # Choose a basic font if not specified
-    font = ImageFont.truetype(font_path or "arial.ttf", font_size)
-    
-    # Estimate height dynamically
-    lines = []
-    draw = ImageDraw.Draw(Image.new("RGB", (width, 1000)))
-    words = text.split()
-    line = ""
-    for word in words:
-        if draw.textlength(line + " " + word, font=font) < width - 2 * padding:
-            line += " " + word
-        else:
-            lines.append(line.strip())
-            line = word
-    lines.append(line.strip())
-    
-    height = padding * 2 + len(lines) * (font_size + 10)
-    image = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(image)
-    
-    y = padding
-    for line in lines:
-        draw.text((padding, y), line, font=font, fill="black")
-        y += font_size + 10
-    
-    image.save(output_path)
-
 def generate_img_b64_list(save_path):
     # ✅ Load PDF and convert each page to JPEG base64
     doc = fitz.open(save_path)

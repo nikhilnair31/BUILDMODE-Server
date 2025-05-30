@@ -1,3 +1,5 @@
+# app.py
+
 import os
 import jwt
 import json
@@ -30,7 +32,8 @@ from browser import (
     screenshot_url
 )
 from pre_process import (
-    preprocess_image
+    preprocess_image,
+    thumbnail_image
 )
 from parser import (
     parse_url_or_text,
@@ -76,6 +79,7 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 MIA_DB_NAME = os.getenv("MIA_DB_NAME")
 MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
 
+THUMBNAIL_DIR = './thumbnails'
 UPLOAD_FOLDER = './uploads'
 ALLOWED_USER_AGENTS = [
     "YourAndroidApp/1.0",     # Replace with your app’s user-agent
@@ -95,6 +99,7 @@ app = Flask(__name__)
 limiter = Limiter(get_remote_address, app=app, default_limits=["100 per day", "30 per hour"])
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
+app.config['THUMBNAIL_DIR'] = THUMBNAIL_DIR
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 engine = create_engine(ENGINE_URL)
 Session = sessionmaker(bind=engine)
@@ -188,11 +193,8 @@ def save_limit_required(f):
             return error_response, status_code
         
         try:
-            logger.info(f"User {current_user.username} has tier: {info['tier'].name}\n")
-            logger.info(f"Start of day timestamp: {info['start_of_day_ts']}\n")
-            logger.info(f"Uploads today: {info['uploads_today']}\n")
-
-            if info['uploads_today'] >= info['tier'].daily_limit:
+            if info['uploads_left'] <= 0:
+                logger.warning(f"Daily upload limit reached for user {current_user.username} ({info['tier'].daily_limit} per day).")
                 return jsonify({
                     'message': f'Daily upload limit reached ({info["tier"].daily_limit} per day for {info["tier"].name} tier).'
                 }), 403
@@ -392,13 +394,16 @@ def upload_image(current_user):
         file.save(temp_path)
         # Downscale and save final image
         processed_path = preprocess_image(temp_path)
-        # Final filename
-        ext = ".jpg"
-        final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        # Final filename\
+        final_filename = secure_filename(f"{uuid.uuid4().hex}.jpg")
         final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
         # Move temp to final location
         os.rename(processed_path, final_filepath)
         logger.info(f"Saved processed image to: {final_filepath}\n")
+        
+        # Generate and save thumbnail
+        file_id = uuid.uuid4().hex
+        thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
 
         # Convert image to base64
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -419,6 +424,7 @@ def upload_image(current_user):
         session = Session()
         entry = DataEntry(
             file_path=final_filepath, 
+            thumbnail_path=thumbnail_rel_path,
             post_url="-",
             tags=content, 
             tags_vector=embedding,
@@ -478,6 +484,10 @@ def upload_imageurl(current_user):
         final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
         final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
         os.rename(processed_path, final_filepath)
+        
+        # Generate and save thumbnail
+        file_id = uuid.uuid4().hex
+        thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
 
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
@@ -490,6 +500,7 @@ def upload_imageurl(current_user):
 
         entry = DataEntry(
             file_path=final_filepath, 
+            thumbnail_path=thumbnail_rel_path,
             post_url=post_url,
             tags=content, 
             tags_vector=embedding,
@@ -539,6 +550,10 @@ def upload_text(current_user):
             with open(final_filepath, "w") as f:
                 f.write(selected_text)
             logger.info(f"Saved text to: {final_filepath}\n")
+        
+            # Generate and save thumbnail
+            file_id = uuid.uuid4().hex
+            thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
 
             # Create embedding
             embedding = call_vec_api(selected_text)
@@ -547,6 +562,7 @@ def upload_text(current_user):
             session = Session()
             entry = DataEntry(
                 file_path=final_filepath, 
+                thumbnail_path=thumbnail_rel_path,
                 post_url="-",
                 tags=selected_text, 
                 tags_vector=embedding,
@@ -580,8 +596,11 @@ def upload_text(current_user):
             final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
             final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
             os.rename(processed_path, final_filepath)
-
             logger.info(f"Saved processed image to: {final_filepath}\n")
+        
+            # Generate and save thumbnail
+            file_id = uuid.uuid4().hex
+            thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
 
             # Convert image to base64
             IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -602,6 +621,7 @@ def upload_text(current_user):
             session = Session()
             entry = DataEntry(
                 file_path=final_filepath, 
+                thumbnail_path=thumbnail_rel_path,
                 post_url=url,
                 tags=content, 
                 tags_vector=embedding,
@@ -633,11 +653,14 @@ def upload_pdf(current_user):
     if not file:
         return jsonify({"status": "error", "message": "No PDF uploaded"}), 400
 
-    timestamped_filename = f"{file.filename}_{int(time.time())}.pdf"
-    save_path = os.path.join(app.config["UPLOAD_FOLDER"], timestamped_filename)
-    file.save(save_path)
-
     try:
+        timestamped_filename = f"{file.filename}_{int(time.time())}.pdf"
+        save_path = os.path.join(app.config["UPLOAD_FOLDER"], timestamped_filename)
+        file.save(save_path)
+        
+        file_id = uuid.uuid4().hex
+        thumbnail_rel_path = thumbnail_image(save_path, file_id)
+
         image_b64_list = generate_img_b64_list(save_path)
         if not image_b64_list:
             return jsonify({"status": "error", "message": "No pages found in PDF"}), 400
@@ -655,6 +678,7 @@ def upload_pdf(current_user):
         session = Session()
         entry = DataEntry(
             file_path=save_path,
+            thumbnail_path=thumbnail_rel_path,
             post_url="-",
             tags=content,
             tags_vector=embedding,
@@ -740,11 +764,35 @@ def get_file(current_user, filename):
 
     # Confirm the image exists in that user's folder
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    logger.info(f"file_path: {file_path}\n")
+    # logger.info(f"file_path: {file_path}\n")
     if not os.path.exists(file_path):
         abort(404)
 
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/api/get_thumbnail/<thumbnailname>')
+@limiter.limit("5 per second;30 per minute")
+@token_required
+def get_thumbnail(current_user, thumbnailname):
+    logger.info(f"Received request to get thumbnail: {thumbnailname}\n")
+    
+    # Check if the user exists
+    session = Session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        logger.error(f"User {user.username} not found.\n")
+        return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+
+    # Sanitize inputs
+    thumbnailname = secure_filename(thumbnailname)
+
+    # Confirm the image exists in that user's folder
+    file_path = os.path.join(app.config['THUMBNAIL_DIR'], thumbnailname)
+    # logger.info(f"file_path: {file_path}\n")
+    if not os.path.exists(file_path):
+        abort(404)
+
+    return send_from_directory(app.config['THUMBNAIL_DIR'], thumbnailname)
 
 @app.route('/api/query', methods=['POST'])
 @limiter.limit("5 per second")
@@ -786,7 +834,7 @@ def query(current_user):
     query_vector = call_vec_api(cleaned_query) if cleaned_query else None
 
     # Build SELECT fields
-    select_fields = ["file_path", "post_url", "tags", "timestamp"]
+    select_fields = ["file_path", "thumbnail_path", "post_url"]
     where_clauses = [f"user_id = '{userid}'"]
     order_by_clauses = []
 
@@ -825,9 +873,8 @@ def query(current_user):
         "results": [
             {
                 "file_name": f"{os.path.basename(r[0])}",
-                "post_url": r[1],
-                "tags_text": r[2],
-                "timestamp_str": int(r[3]),
+                "thumbnail_name": f"{os.path.basename(r[1])}",
+                "post_url": r[2]
             }
             for r in result
         ]

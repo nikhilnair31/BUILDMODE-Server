@@ -1,10 +1,12 @@
+# models.py
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.orm import relationship
+from sqlalchemy.ext.declarative import declarative_base
 from werkzeug.security import (
     generate_password_hash, 
     check_password_hash
 )
-from pgvector.sqlalchemy import Vector
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column, 
     Integer, 
@@ -38,13 +40,14 @@ class DataEntry(Base):
     __tablename__ = 'data'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer)
+    thumbnail_path = Column(String)
     file_path = Column(String)
     post_url = Column(String)
     tags = Column(String)
     tags_vector = Column(Vector(768))
     swatch_vector = Column(Vector(30))
     timestamp = Column(Integer)
-    user_id = Column(Integer)
 
 class Tier(Base):
     __tablename__ = 'tiers'
