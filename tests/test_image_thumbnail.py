@@ -9,7 +9,7 @@ import logging
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import Base, DataEntry
-from pre_process import thumbnail_image
+from pre_process import generate_thumbnail
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -48,7 +48,7 @@ def generate_missing_thumbnails():
             continue
 
         file_id = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(file_path, file_id)
+        thumbnail_rel_path = generate_thumbnail(file_path, file_id)
 
         if thumbnail_rel_path:
             entry.thumbnail_path = thumbnail_rel_path

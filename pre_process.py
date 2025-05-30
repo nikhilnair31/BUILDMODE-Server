@@ -2,17 +2,22 @@
 
 import io
 import os
+import uuid
 import tempfile
+from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw, ImageFont
 from pdf2image import convert_from_path
 
 PATTERN = rf'<tags>(.*?)<\/tags>'
 
-THUMBNAIL_DIR = './thumbnails'
+def compress_image(file, upload_dir):
+    file_uuid = uuid.uuid4().hex
+    temp_ext = os.path.splitext(file.filename)[1]
+    temp_path = os.path.join(tempfile.gettempdir(), secure_filename(f"{file_uuid}{temp_ext}"))
+    file.save(temp_path)
 
-def preprocess_image(file_path):
-    img = Image.open(file_path).convert("RGB")
-    buffer = io.BytesIO()
+    img = Image.open(temp_path).convert("RGB")
+    buffer = BytesIO()
 
     max_size_kb = 500  # Target size in KB
     quality = 85  # Start with decent quality
@@ -27,11 +32,13 @@ def preprocess_image(file_path):
 
     buffer.seek(0)
 
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-    temp_file.write(buffer.getvalue())
-    temp_file.close()
+    final_filename = secure_filename(f"{file_uuid}.jpg")
+    final_filepath = os.path.join(upload_dir, final_filename)
+    
+    with open(final_filepath, 'wb') as f:
+        f.write(buffer.getvalue())
 
-    return temp_file.name
+    return final_filepath
 
 def generate_image_thumbnail(source_path, dest_path, size=(300, 300)):
     with Image.open(source_path) as img:
@@ -58,11 +65,12 @@ def generate_text_thumbnail(source_path, dest_path, width=300, height=300):
     except Exception as e:
         print(f"Error: {e}")
         return
-def thumbnail_image(file_path, file_id):
-    ext = file_path.lower()
-    dest_path = os.path.join(THUMBNAIL_DIR, f"{file_id}.jpg")
-
+def generate_thumbnail(file_path, thumbnail_dir):
     try:
+        thumbnail_uuid = uuid.uuid4().hex
+        ext = file_path.lower()
+        dest_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
+
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             generate_image_thumbnail(file_path, dest_path)
         elif ext.endswith('.pdf'):
@@ -71,7 +79,7 @@ def thumbnail_image(file_path, file_id):
             generate_text_thumbnail(file_path, dest_path)
         else:
             return None  # unsupported
-        return f"thumbnails/{file_id}.jpg"
+        return f"thumbnails/{thumbnail_uuid}.jpg"
     except Exception as e:
         print(f"Failed to create thumbnail for {file_path}: {e}")
         return None

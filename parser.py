@@ -52,8 +52,6 @@ def parse_url_or_text(text):
     return "text", text
 
 def parse_time_input(text):
-    logger.info(f"Parsing time input...")
-
     if not DATE_HINT_REGEX.search(text):
         return None  # Short-circuit for non-date-like queries
 
@@ -62,7 +60,7 @@ def parse_time_input(text):
         return None  # Couldn’t parse into a date
 
     converted_time = datetime(*time_struct[:6])  # Convert to datetime
-    logger.info(f"Parsed time: {converted_time}")
+    # logger.info(f"Parsed time: {converted_time}")
 
     return converted_time
 

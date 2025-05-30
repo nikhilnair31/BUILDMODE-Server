@@ -10,7 +10,6 @@ from werkzeug.security import (
 from sqlalchemy import (
     Column, 
     Integer, 
-    Float,
     String,
     ForeignKey
 )

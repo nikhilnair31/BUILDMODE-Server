@@ -33,8 +33,8 @@ from browser import (
     screenshot_url
 )
 from pre_process import (
-    preprocess_image,
-    thumbnail_image
+    compress_image,
+    generate_thumbnail
 )
 from parser import (
     parse_url_or_text,
@@ -78,7 +78,7 @@ class Config:
     MIA_DB_NAME = os.getenv("MIA_DB_NAME")
     MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
     THUMBNAIL_DIR = os.getenv("THUMBNAIL_DIR")
-    UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER")
+    UPLOAD_DIR = os.getenv("UPLOAD_DIR")
 
 ALLOWED_USER_AGENTS = [
     "YourAndroidApp/1.0",     # Replace with your app’s user-agent
@@ -420,6 +420,7 @@ def upload_image(current_user):
         if not file:
             logger.error("No image file provided.")
             return error_response("No image file provided.", 400)
+        logger.info(f"Recived filename: {file.filename}")
 
         # Check if the user exists
         session = Session()
@@ -429,25 +430,9 @@ def upload_image(current_user):
             logger.error(e)
             return error_response(e, 404)
 
-        file_uuid_token = uuid.uuid4().hex
-        file_ext = os.path.splitext(file.filename)[1]
-        logger.info(f"Recived filename: {file.filename}")
-        # Save the original temporarily
-        temp_filename  = secure_filename(f"{file_uuid_token}{file_ext}")
-        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-        file.save(temp_path)
-        # Downscale and save final image
-        processed_path = preprocess_image(temp_path)
-        # Final filename\
-        final_filename = secure_filename(f"{file_uuid_token}.jpg")
-        final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
-        # Move temp to final location
-        os.rename(processed_path, final_filepath)
-        logger.info(f"Saved processed image to: {final_filepath}\n")
-        
-        # Generate and save thumbnail
-        thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
+        # Compress and save image
+        final_filepath = compress_image(file, app.config['UPLOAD_DIR'])
+        thumbnail_path = generate_thumbnail(final_filepath, app.config['THUMBNAIL_DIR'])
 
         # Convert image to base64
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -468,7 +453,7 @@ def upload_image(current_user):
         session = Session()
         entry = DataEntry(
             file_path=final_filepath, 
-            thumbnail_path=thumbnail_rel_path,
+            thumbnail_path=thumbnail_path,
             post_url="-",
             tags=content, 
             tags_vector=embedding,
@@ -529,14 +514,14 @@ def upload_imageurl(current_user):
         with open(temp_path, "wb") as out_file:
             out_file.write(response.content)
 
-        processed_path = preprocess_image(temp_path)
+        processed_path = compress_image(temp_path)
         final_filename = secure_filename(f"{file_uuid_token}.jpg")
-        final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+        final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
         os.rename(processed_path, final_filepath)
         
         # Generate and save thumbnail
         thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
+        thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
 
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
@@ -598,14 +583,14 @@ def upload_text(current_user):
             # Final filename and move
             file_uuid_token = uuid.uuid4().hex
             final_filename = secure_filename(f"{file_uuid_token}.txt")
-            final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+            final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
             with open(final_filepath, "w") as f:
                 f.write(selected_text)
             logger.info(f"Saved text to: {final_filepath}\n")
         
             # Generate and save thumbnail
             thumbnail_uuid_token = uuid.uuid4().hex
-            thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
+            thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
 
             # Create embedding
             embedding = call_vec_api(selected_text)
@@ -642,17 +627,17 @@ def upload_text(current_user):
             screenshot_url(url, path=temp_path)
 
             # Downscale and save final image
-            processed_path = preprocess_image(temp_path)
+            processed_path = compress_image(temp_path)
 
             # Final filename and move
             final_filename = secure_filename(f"{file_uuid_token}.jpg")
-            final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+            final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
             os.rename(processed_path, final_filepath)
             logger.info(f"Saved processed image to: {final_filepath}\n")
         
             # Generate and save thumbnail
             thumbnail_uuid_token = uuid.uuid4().hex
-            thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
+            thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
 
             # Convert image to base64
             IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -712,11 +697,11 @@ def upload_pdf(current_user):
 
     try:
         timestamped_filename = f"{file.filename}_{int(time.time())}.pdf"
-        save_path = os.path.join(app.config["UPLOAD_FOLDER"], timestamped_filename)
+        save_path = os.path.join(app.config["UPLOAD_DIR"], timestamped_filename)
         file.save(save_path)
         
         thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(save_path, thumbnail_uuid_token)
+        thumbnail_rel_path = generate_thumbnail(save_path, thumbnail_uuid_token)
 
         image_b64_list = generate_img_b64_list(save_path)
         if not image_b64_list:
@@ -771,7 +756,7 @@ def delete_file(current_user):
             e = "No file_name provided."
             logger.error(e)
             return error_response(e, 400)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
+        file_path = os.path.join(app.config['UPLOAD_DIR'], file_name)
         logger.info(f"Received file_path: {file_path}\n")
 
         # Check if the user exists
@@ -827,19 +812,17 @@ def get_file(current_user, filename):
     filename = secure_filename(filename)
 
     # Confirm the image exists in that user's folder
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file_path = os.path.join(app.config['UPLOAD_DIR'], filename)
     # logger.info(f"file_path: {file_path}\n")
     if not os.path.exists(file_path):
         abort(404)
 
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    return send_from_directory(app.config['UPLOAD_DIR'], filename)
 
 @app.route('/api/get_thumbnail/<thumbnailname>')
 @limiter.limit("5 per second;30 per minute")
 @token_required
 def get_thumbnail(current_user, thumbnailname):
-    logger.info(f"Received request to get thumbnail: {thumbnailname}\n")
-    
     # Check if the user exists
     session = Session()
     user = session.query(User).get(current_user.id)
@@ -873,7 +856,7 @@ def get_similar(current_user, filename):
 
         # Sanitize and construct path
         filename = secure_filename(filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file_path = os.path.join(app.config['UPLOAD_DIR'], filename)
 
         # Find the target entry
         entry = session.query(DataEntry).filter_by(file_path=file_path, user_id=user.id).first()
@@ -954,7 +937,7 @@ def query(current_user):
     start = time.perf_counter()
     timestamp = parse_time_input(query_text)
     unix_time = int(timestamp.timestamp()) if timestamp else None
-    logger.info(f"unix_time took {time.perf_counter() - start:.2f}s")
+    logger.info(f"Query took {(time.perf_counter() - start) * 1000:.2f}ms")
 
     # Extract content after removing time & color
     cleaned_query = clean_text_of_color_and_time(query_text)
