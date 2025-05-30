@@ -794,6 +794,65 @@ def get_thumbnail(current_user, thumbnailname):
 
     return send_from_directory(app.config['THUMBNAIL_DIR'], thumbnailname)
 
+@app.route('/api/get_similar/<filename>')
+@limiter.limit("5 per second;30 per minute")
+@token_required
+def get_similar(current_user, filename):
+    logger.info(f"Received request to get similar to: {filename}\n")
+
+    session = Session()
+    try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            logger.error(f"User ID {current_user.id} not found.")
+            return jsonify({"error": "Invalid user"}), 404
+
+        # Sanitize and construct path
+        filename = secure_filename(filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+        # Find the target entry
+        entry = session.query(DataEntry).filter_by(file_path=file_path, user_id=user.id).first()
+        logger.info(f"entry: {entry} and entry.file_path: {entry.file_path}\n")
+        if not entry:
+            logger.warning(f"No entry found for file_path: {file_path}")
+            return jsonify({"status": "error", "message": "File not found"}), 404
+        
+        user_id = user.id
+        file_path = entry.file_path
+        query_vec = entry.tags_vector.tolist()
+        logger.info(f"typed query_vec: {type(query_vec)}\n")
+        logger.info(f"query_vec: {query_vec[:5]}...\n")
+ 
+        # Build SQL
+        final_sql = f"""
+            SELECT file_path, thumbnail_path, post_url, tags_vector <=> '{query_vec}' AS similarity
+            FROM data
+            WHERE user_id = {user_id} AND file_path != '{file_path}'
+            ORDER BY similarity ASC
+            LIMIT 10
+        """
+        results = session.execute(
+            text(final_sql)
+        ).fetchall()
+        logger.info(f"Found {len(results)} similar entries")
+
+        return jsonify({
+            "results": [
+                {
+                    "file_name": os.path.basename(r[0]),
+                    "thumbnail_name": os.path.basename(r[1]),
+                    "post_url": r[2]
+                } for r in results
+            ]
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching similar content: {e}")
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        session.close()
+
 @app.route('/api/query', methods=['POST'])
 @limiter.limit("5 per second")
 @token_required
