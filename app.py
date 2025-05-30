@@ -228,7 +228,7 @@ def save_limit_required(f):
         
         try:
             if info['uploads_left'] <= 0:
-                e = f"Daily upload limit reached for user {current_user.username} ({info['tier'].daily_limit} per day)."
+                e = f"Daily upload limit reached for user {current_user.username} | ({info['tier_name']} - {info['daily_limit']} per day)."
                 logger.warning(e)
                 return error_response(e, 403)
             return f(current_user, *args, **kwargs)
@@ -514,7 +514,7 @@ def upload_imageurl(current_user):
         with open(temp_path, "wb") as out_file:
             out_file.write(response.content)
 
-        processed_path = compress_image(temp_path)
+        processed_path = compress_image(temp_path, app.config['UPLOAD_DIR'])
         final_filename = secure_filename(f"{file_uuid_token}.jpg")
         final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
         os.rename(processed_path, final_filepath)
@@ -625,9 +625,9 @@ def upload_text(current_user):
 
             logger.info(f"Taking screenshot of {url}...")
             screenshot_url(url, path=temp_path)
-
+            
             # Downscale and save final image
-            processed_path = compress_image(temp_path)
+            processed_path = compress_image(open(temp_path, "rb"), app.config['UPLOAD_DIR'])
 
             # Final filename and move
             final_filename = secure_filename(f"{file_uuid_token}.jpg")

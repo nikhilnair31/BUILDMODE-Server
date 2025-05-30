@@ -16,9 +16,20 @@ logger = logging.getLogger(__name__)
 
 def compress_image(file, upload_dir):
     file_uuid = uuid.uuid4().hex
-    ext = os.path.splitext(file.filename)[1].lower()
-    temp_path = os.path.join(tempfile.gettempdir(), secure_filename(f"{file_uuid}{ext}"))
-    file.save(temp_path)
+    
+    # Determine file extension safely
+    if hasattr(file, 'filename'):
+        ext = os.path.splitext(file.filename)[1].lower()
+        filename = secure_filename(f"{file_uuid}{ext}")
+        temp_path = os.path.join(tempfile.gettempdir(), filename)
+        file.save(temp_path)
+    else:
+        # Assume file is a file-like object (e.g., open("path", "rb"))
+        ext = '.jpg'  # fallback extension, optionally infer from content
+        filename = f"{file_uuid}{ext}"
+        temp_path = os.path.join(tempfile.gettempdir(), filename)
+        with open(temp_path, "wb") as out_file:
+            out_file.write(file.read())
 
     final_filename = secure_filename(f"{file_uuid}.jpg")
     final_filepath = os.path.join(upload_dir, final_filename)
