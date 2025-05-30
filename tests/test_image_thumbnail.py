@@ -47,8 +47,7 @@ def generate_missing_thumbnails():
             logger.warning(f"File not found: {file_path}")
             continue
 
-        file_id = uuid.uuid4().hex
-        thumbnail_rel_path = generate_thumbnail(file_path, file_id)
+        thumbnail_rel_path = generate_thumbnail(file_path, './thumbnails')
 
         if thumbnail_rel_path:
             entry.thumbnail_path = thumbnail_rel_path

@@ -20,6 +20,7 @@ Thumbs.db
 
 # Uploads / user content
 uploads/
+thumbnails/
 
 # Media files
 *.png

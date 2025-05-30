@@ -37,7 +37,6 @@ from pre_process import (
     generate_thumbnail
 )
 from parser import (
-    parse_url_or_text,
     parse_time_input,
     extract_color_code,
     timezone_to_start_of_day_ts,
@@ -979,6 +978,7 @@ def query(current_user):
         logger.info(f"Detected time filter (>= {unix_time})")
         where_clauses.append(f"timestamp >= {unix_time}")
     
+    # Build SQL
     final_sql = f"""
         SELECT {', '.join(select_fields)}
         FROM data
@@ -986,11 +986,9 @@ def query(current_user):
         ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
         LIMIT 100
     """
-
-    # Build SQL
     sql = text(final_sql)
     result = session.execute(sql).fetchall()
-    logger.info(f"len result: {len(result)}\n")
+    logger.info(f"len result: {len(result)} and result[0] = {result[0]}\n")
 
     result_json = {
         "results": [

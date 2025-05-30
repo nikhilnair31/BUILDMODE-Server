@@ -34,23 +34,6 @@ def timezone_to_start_of_day_ts(tz_name):
 
     return start_of_day_ts
 
-def parse_url_or_text(text):
-    logger.info(f"Parsing URL or text: {text}")
-
-    # Check for URL patterns
-    url_pattern = re.compile(
-        r'((https?|ftp)://[^\s/$.?#].[^\s]*)', re.IGNORECASE
-    )
-    match = url_pattern.search(text)
-    
-    if match:
-        url = match.group(0)
-        logger.info(f"Found URL: {url}")
-        return "url", url
-
-    # If neither, return text
-    return "text", text
-
 def parse_time_input(text):
     if not DATE_HINT_REGEX.search(text):
         return None  # Short-circuit for non-date-like queries
