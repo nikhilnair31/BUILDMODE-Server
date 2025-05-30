@@ -45,6 +45,25 @@
     - `sudo apt remove --purge -y postgresql*`
     - `sudo apt autoremove --purge -y`
 
+### Reindex
+- Run the below to use IVFFlat
+```sql
+CREATE INDEX tags_vector_idx ON data
+USING ivfflat (tags_vector vector_cosine_ops)
+WITH (lists = 50);
+
+CREATE INDEX swatch_vector_idx ON data
+USING ivfflat (swatch_vector vector_l2_ops)
+WITH (lists = 50);
+```
+- Adjust the lists value based on your dataset size:
+    - Small (<=10K rows): 10–50
+    - Medium (10K–100K): 50–100
+- Make sure data is analyzed so the query planner has up-to-date statistics
+```sql
+ANALYZE data;
+```
+
 ## Systemd Service Setup
 
 - Create a systemd Service with `sudo nano /etc/systemd/system/forgor-api.service`

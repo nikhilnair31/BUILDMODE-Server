@@ -876,7 +876,7 @@ def get_similar(current_user, filename):
             FROM data
             WHERE user_id = {user_id} AND file_path != '{file_path}'
             ORDER BY similarity ASC
-            LIMIT 10
+            LIMIT 100
         """
         results = session.execute(
             text(final_sql)
@@ -971,7 +971,7 @@ def query(current_user):
         FROM data
         WHERE {' AND '.join(where_clauses)}
         ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
-        LIMIT 10
+        LIMIT 100
     """
 
     # Build SQL

@@ -21,3 +21,12 @@ find $BACKUP_DIR -type f -name "${DB_NAME}_backup_*.sql.gz" -mtime +7 -delete
 
 # Optional: Logging
 echo "[pg_backup] $(date) Backup created: $FILENAME"
+
+# === Optional: Reindex IVFFlat indexes and analyze ===
+sudo -u postgres psql -d $DB_NAME <<EOF
+REINDEX INDEX CONCURRENTLY tags_vector_idx;
+REINDEX INDEX CONCURRENTLY swatch_vector_idx;
+ANALYZE data;
+EOF
+
+echo "[Pg_backup] $(date) Reindex + Analyze completed"
