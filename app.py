@@ -1,5 +1,6 @@
 # app.py
 
+# region Imports
 import os
 import jwt
 import json
@@ -65,51 +66,77 @@ from flask import (
     send_file,
     send_from_directory
 )
+# endregion
 
-#region Initialization
+#region Config & Constants
 load_dotenv()
-
 warnings.filterwarnings("ignore", category=UserWarning)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+class Config:
+    APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    MIA_DB_NAME = os.getenv("MIA_DB_NAME")
+    MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
+    THUMBNAIL_DIR = os.getenv("THUMBNAIL_DIR")
+    UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER")
 
-APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-MIA_DB_NAME = os.getenv("MIA_DB_NAME")
-MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
-
-THUMBNAIL_DIR = './thumbnails'
-UPLOAD_FOLDER = './uploads'
 ALLOWED_USER_AGENTS = [
     "YourAndroidApp/1.0",     # Replace with your app’s user-agent
     "python-requests",        # Allow during dev/testing
     "PostmanRuntime",         # Optional: for Postman testing
 ]
+
 IMAGE_PREPROCESS_SYSTEM_PROMPT = """
     Extract a long and comprehensive list of keywords to describe the image provided. These keywords will be used for semantic search eventually. Extract things like themes, dominant/accent colors, moods along with more descriptive terms. If possible determine the app the screenshot was taken in as well. Ignore phone status information. Only output as shown below
     <tags>
     keyword1, keyword2, ...
     </tags>
 """
-ENGINE_URL = f'postgresql://postgres:{MIA_DB_PASSWORD}@localhost/{MIA_DB_NAME}'
-logger.info(f"Connecting to {ENGINE_URL}\n")
 
+ENGINE_URL = f'postgresql://postgres:{Config.MIA_DB_PASSWORD}@localhost/{Config.MIA_DB_NAME}'
+# endregion
+
+# region Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info(f"Connecting to database at: {ENGINE_URL}")
+
+def error_response(message, status_code=400, status='error', extra=None):
+    payload = {
+        'status': status,
+        'message': message
+    }
+    if extra:
+        payload.update(extra)
+    return jsonify(payload), status_code
+# endregion
+
+# region Flask App Initialization
 app = Flask(__name__)
-limiter = Limiter(get_remote_address, app=app, default_limits=["100 per day", "30 per hour"])
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
-app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
-app.config['THUMBNAIL_DIR'] = THUMBNAIL_DIR
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-engine = create_engine(ENGINE_URL)
-Session = sessionmaker(bind=engine)
+app.config.from_object(Config)
 
-query_cache = TTLCache(maxsize=1000, ttl=300)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+# Rate Limiting
+limiter = Limiter(
+    get_remote_address, 
+    app=app, 
+    default_limits=["100 per day", "30 per hour"]
+)
 
 # Allow all origins for now, or restrict to your frontend domain
-CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
+CORS(app, supports_credentials=True, resources={
+    r"/api/*": {
+        "origins": [
+            "https://forgor.space",        # Covers https://forgor.space/app
+        ]
+    }
+})
+# endregion
 
-# Base.metadata.drop_all(bind=engine)
+# region Database Initialization
+engine = create_engine(ENGINE_URL)
+Session = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
 # endregion
 
@@ -158,27 +185,34 @@ def token_required(f):
     def wrapper(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token:
-            logger.error("Token missing")
-            return jsonify({'message': 'Token missing'}), 401
+            e = "Token is missing or invalid"
+            logger.error(e)
+            return error_response(e, 401)
         
         try:
-            data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            data = jwt.decode(token, Config.JWT_SECRET_KEY, algorithms=['HS256'])
             # logger.info(f"Decoded token payload: {data}")
         except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired'}), 401
+            e = "Token has expired"
+            logger.error(e)
+            return error_response(e, 401)
         except jwt.InvalidTokenError:
-            return jsonify({'message': 'Invalid token'}), 401
+            e = "Invalid token"
+            logger.error(e)
+            return error_response(e, 401)
         except Exception as e:
-            logger.error(f"Unexpected error decoding token: {e}")
-            return jsonify({'message': 'Token error'}), 500
+            e = f"Error decoding token: {e}"
+            logger.error(e)
+            return error_response(e, 500)
 
         session = Session()
         try:
             user = session.query(User).filter_by(id=data['user_id']).first()
             # logger.info(f"user: {user}")
             if not user:
-                logger.error(f"User ID {data['user_id']} not found in database.")
-                return jsonify({'message': 'User not found'}), 401
+                e = f"User ID {data['user_id']} not found"
+                logger.error(e)
+                return error_response(e, 401)
         finally:
             session.close()
 
@@ -194,10 +228,9 @@ def save_limit_required(f):
         
         try:
             if info['uploads_left'] <= 0:
-                logger.warning(f"Daily upload limit reached for user {current_user.username} ({info['tier'].daily_limit} per day).")
-                return jsonify({
-                    'message': f'Daily upload limit reached ({info["tier"].daily_limit} per day for {info["tier"].name} tier).'
-                }), 403
+                e = f"Daily upload limit reached for user {current_user.username} ({info['tier'].daily_limit} per day)."
+                logger.warning(e)
+                return error_response(e, 403)
             return f(current_user, *args, **kwargs)
         finally:
             session.close()
@@ -205,6 +238,8 @@ def save_limit_required(f):
 # endregion
 
 #region Caching
+query_cache = TTLCache(maxsize=1000, ttl=300)
+
 def get_cache_key(user_id, query_text):
     return sha256(f"{user_id}:{query_text}".encode()).hexdigest()
 def clear_user_cache(user_id):
@@ -232,7 +267,7 @@ def restrict_headers():
         return
 
     # Require custom header
-    if not api_key or api_key != APP_SECRET_KEY:
+    if not api_key or api_key != Config.APP_SECRET_KEY:
         print(f"Rejected request with UA: {user_agent}, API key: {api_key}")
         abort(403, description="Forbidden: Invalid or missing headers.")
 # endregion
@@ -245,16 +280,22 @@ def refresh_token():
     refresh_token = data.get('refresh_token', '')
 
     try:
-        payload = jwt.decode(refresh_token, JWT_SECRET_KEY, algorithms=['HS256'])
+        payload = jwt.decode(refresh_token, Config.JWT_SECRET_KEY, algorithms=['HS256'])
     except jwt.ExpiredSignatureError:
-        return jsonify({'message': 'Refresh token expired'}), 401
+        e = "Refresh token has expired"
+        logger.error(e)
+        return error_response(e, 401)
     except jwt.InvalidTokenError:
-        return jsonify({'message': 'Invalid refresh token'}), 401
+        e = "Invalid refresh token"
+        logger.error(e)
+        return error_response(e, 401)
 
     session = Session()
     user = session.query(User).get(payload['user_id'])
     if not user:
-        return jsonify({'message': 'User not found'}), 404
+        e = f"User ID {payload['user_id']} not found"
+        logger.error(e)
+        return error_response(e, 404)
 
     # Issue new access token
     new_access_token = jwt.encode(
@@ -262,7 +303,7 @@ def refresh_token():
             'user_id': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
         },
-        JWT_SECRET_KEY,
+        Config.JWT_SECRET_KEY,
         algorithm='HS256'
     )
 
@@ -281,7 +322,7 @@ def register():
     session = Session()
     if session.query(User).filter_by(username=username).first():
         logger.error(f"User {username} already exists.\n")
-        return jsonify({'message': 'Username already exists'}), 400
+        return error_response("Username already exists", 400)
 
     new_user = User(
         username=username,
@@ -305,7 +346,7 @@ def login():
     user = session.query(User).filter_by(username=data['username']).first()
     if not user or not user.check_password(data['password']):
         logger.error(f"Invalid credentials for user {data['username']}.\n")
-        return jsonify({'message': 'Invalid credentials'}), 401
+        return error_response("Invalid credentials", 401)
     logger.info(f"User {user.username} logged in successfully.\n")
 
     access_token = jwt.encode(
@@ -313,7 +354,7 @@ def login():
             'user_id': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
         }, 
-        JWT_SECRET_KEY, 
+        Config.JWT_SECRET_KEY, 
         algorithm='HS256'
     )
     refresh_token = jwt.encode(
@@ -321,7 +362,7 @@ def login():
             'user_id': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(days=30)
         }, 
-        JWT_SECRET_KEY, 
+        Config.JWT_SECRET_KEY, 
         algorithm='HS256'
     )
     logger.info(f"Generated access and refresh token\n")
@@ -342,7 +383,7 @@ def update_username(current_user):
     session = Session()
     try:
         if session.query(User).filter_by(username=data['new_username']).first():
-            return jsonify({'message': 'Username already taken'}), 400
+            return error_response("Username already taken", 400)
 
         # Re-attach or re-fetch user in this session
         user = session.query(User).get(current_user.id)
@@ -377,33 +418,36 @@ def upload_image(current_user):
 
         file = request.files['image']
         if not file:
-            return jsonify({'status': 'error', 'message': 'No image provided.'}), 400
+            logger.error("No image file provided.")
+            return error_response("No image file provided.", 400)
 
         # Check if the user exists
         session = Session()
         user = session.query(User).get(current_user.id)
         if not user:
-            logger.error(f"User {user.username} not found.\n")
-            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
 
+        file_uuid_token = uuid.uuid4().hex
         file_ext = os.path.splitext(file.filename)[1]
         logger.info(f"Recived filename: {file.filename}")
         # Save the original temporarily
-        temp_filename  = secure_filename(f"{uuid.uuid4().hex}{file_ext}")
+        temp_filename  = secure_filename(f"{file_uuid_token}{file_ext}")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
         file.save(temp_path)
         # Downscale and save final image
         processed_path = preprocess_image(temp_path)
         # Final filename\
-        final_filename = secure_filename(f"{uuid.uuid4().hex}.jpg")
+        final_filename = secure_filename(f"{file_uuid_token}.jpg")
         final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
         # Move temp to final location
         os.rename(processed_path, final_filepath)
         logger.info(f"Saved processed image to: {final_filepath}\n")
         
         # Generate and save thumbnail
-        file_id = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
+        thumbnail_uuid_token = uuid.uuid4().hex
+        thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
 
         # Convert image to base64
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -441,9 +485,10 @@ def upload_image(current_user):
         return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'})
     
     except Exception as e:
-        logger.error("ERROR:", str(e))
+        e = f"Error processing image upload: {e}"
+        logger.error(e)
         traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return error_response(e, 500)
 
 @app.route('/api/upload/imageurl', methods=['POST'])
 @limiter.limit("1 per second")
@@ -457,12 +502,16 @@ def upload_imageurl(current_user):
         post_url = request.form.get("post_url", "-")  # original page image came from
 
         if not image_url:
-            return jsonify({'status': 'error', 'message': 'No image URL provided.'}), 400
+            e = f"No image URL provided."
+            logger.error(e)
+            return error_response(e, 400)
 
         session = Session()
         user = session.query(User).get(current_user.id)
         if not user:
-            return jsonify({"status": "error", "message": "User not found."}), 404
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
 
         logger.info(f"Downloading image from: {image_url[:25]}")
         response = requests.get(image_url, stream=True)
@@ -473,21 +522,21 @@ def upload_imageurl(current_user):
         if url_ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
             raise Exception(f"Unsupported image format: {url_ext}. Only PNG, JPG, JPEG, and WEBP are allowed.")
         
-        ext = ".jpg"
-        temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        file_uuid_token = uuid.uuid4().hex
+        temp_filename = secure_filename(f"{file_uuid_token}.jpg")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
 
         with open(temp_path, "wb") as out_file:
             out_file.write(response.content)
 
         processed_path = preprocess_image(temp_path)
-        final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+        final_filename = secure_filename(f"{file_uuid_token}.jpg")
         final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
         os.rename(processed_path, final_filepath)
         
         # Generate and save thumbnail
-        file_id = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
+        thumbnail_uuid_token = uuid.uuid4().hex
+        thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
 
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
@@ -517,9 +566,10 @@ def upload_imageurl(current_user):
         return jsonify({'status': 'success', 'message': 'Image from URL processed successfully'})
     
     except Exception as e:
-        logger.error("ERROR:", str(e))
+        e = f"Error processing image URL upload: {e}"
+        logger.error(e)
         traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return error_response(e, 500)
 
 @app.route('/api/upload/text', methods=['POST'])
 @limiter.limit("1 per second")
@@ -535,8 +585,9 @@ def upload_text(current_user):
         session = Session()
         user = session.query(User).get(current_user.id)
         if not user:
-            logger.error(f"User {user.username} not found.\n")
-            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
         logger.info(f"Received from {user.username} a text: {text}\n")
 
         # Parse URL or text
@@ -545,15 +596,16 @@ def upload_text(current_user):
             selected_text = content
             
             # Final filename and move
-            final_filename = secure_filename(f"{uuid.uuid4().hex}.txt")
+            file_uuid_token = uuid.uuid4().hex
+            final_filename = secure_filename(f"{file_uuid_token}.txt")
             final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
             with open(final_filepath, "w") as f:
                 f.write(selected_text)
             logger.info(f"Saved text to: {final_filepath}\n")
         
             # Generate and save thumbnail
-            file_id = uuid.uuid4().hex
-            thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
+            thumbnail_uuid_token = uuid.uuid4().hex
+            thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
 
             # Create embedding
             embedding = call_vec_api(selected_text)
@@ -582,8 +634,8 @@ def upload_text(current_user):
             logger.info(f"Received URL: {url}\n")
             
             # Take screenshot
-            ext = ".jpg"
-            temp_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+            file_uuid_token = uuid.uuid4().hex
+            temp_filename = secure_filename(f"{file_uuid_token}.jpg")
             temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
 
             logger.info(f"Taking screenshot of {url}...")
@@ -593,14 +645,14 @@ def upload_text(current_user):
             processed_path = preprocess_image(temp_path)
 
             # Final filename and move
-            final_filename = secure_filename(f"{uuid.uuid4().hex}{ext}")
+            final_filename = secure_filename(f"{file_uuid_token}.jpg")
             final_filepath = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
             os.rename(processed_path, final_filepath)
             logger.info(f"Saved processed image to: {final_filepath}\n")
         
             # Generate and save thumbnail
-            file_id = uuid.uuid4().hex
-            thumbnail_rel_path = thumbnail_image(final_filepath, file_id)
+            thumbnail_uuid_token = uuid.uuid4().hex
+            thumbnail_rel_path = thumbnail_image(final_filepath, thumbnail_uuid_token)
 
             # Convert image to base64
             IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -637,12 +689,15 @@ def upload_text(current_user):
 
             return jsonify({'status': 'success', 'message': 'URL processed successfully'})
         else:
-            return jsonify({'status': 'error', 'message': 'Invalid input provided.'}), 400
+            e = f"Invalid input type: {parse_type}. Only text or URL is allowed."
+            logger.error(e)
+            return error_response(e, 400)
     
     except Exception as e:
-        logger.error("ERROR:", str(e))
+        e = f"Error processing text upload: {e}"
+        logger.error(e)
         traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return error_response(e, 500)
 
 @app.route('/api/upload/pdf', methods=['POST'])
 @limiter.limit("1 per second")
@@ -651,19 +706,23 @@ def upload_text(current_user):
 def upload_pdf(current_user):
     file = request.files.get("pdf")
     if not file:
-        return jsonify({"status": "error", "message": "No PDF uploaded"}), 400
+        e = "No PDF file uploaded"
+        logger.error(e)
+        return error_response(e, 400)
 
     try:
         timestamped_filename = f"{file.filename}_{int(time.time())}.pdf"
         save_path = os.path.join(app.config["UPLOAD_FOLDER"], timestamped_filename)
         file.save(save_path)
         
-        file_id = uuid.uuid4().hex
-        thumbnail_rel_path = thumbnail_image(save_path, file_id)
+        thumbnail_uuid_token = uuid.uuid4().hex
+        thumbnail_rel_path = thumbnail_image(save_path, thumbnail_uuid_token)
 
         image_b64_list = generate_img_b64_list(save_path)
         if not image_b64_list:
-            return jsonify({"status": "error", "message": "No pages found in PDF"}), 400
+            e = "No pages found in PDF"
+            logger.error(e)
+            return error_response(e, 400)
 
         # Send all pages to LLM
         content = call_llm_api(
@@ -695,8 +754,10 @@ def upload_pdf(current_user):
         return jsonify({"status": "success", "message": "PDF uploaded and processed"})
 
     except Exception as e:
-        logger.error(f"Error processing PDF: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        e = f"Error processing PDF upload: {e}"
+        logger.error(e)
+        traceback.print_exc()
+        return error_response(e, 500)
 
 @app.route('/api/delete/file', methods=['POST'])
 @limiter.limit("1 per second")
@@ -707,7 +768,9 @@ def delete_file(current_user):
 
         file_name = request.form['file_name']
         if not file_name:
-            return jsonify({'status': 'error', 'message': 'No file_name provided.'}), 400
+            e = "No file_name provided."
+            logger.error(e)
+            return error_response(e, 400)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], file_name)
         logger.info(f"Received file_path: {file_path}\n")
 
@@ -715,14 +778,16 @@ def delete_file(current_user):
         session = Session()
         user = session.query(User).get(current_user.id)
         if not user:
-            logger.error(f"User {user.username} not found.\n")
-            return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
         
         # Find entry with this file path and user ID
         entry = session.query(DataEntry).filter_by(file_path=file_path, user_id=user.id).first()
         if not entry:
-            logger.warning(f"No entry found for file_path: {file_path}")
-            return jsonify({"status": "error", "message": "No matching file entry found."}), 404
+            e = f"No entry found for file_path: {file_path}"
+            logger.error(e)
+            return error_response(e, 404)
 
         # Delete the file if it exists
         if os.path.exists(file_path):
@@ -742,16 +807,15 @@ def delete_file(current_user):
         return jsonify({'status': 'success', 'message': 'Deleted file successfully'})
     
     except Exception as e:
-        logger.error("ERROR:", str(e))
+        e = f"Error deleting file: {e}"
+        logger.error(e)
         traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return error_response(e, 500)
 
 @app.route('/api/get_file/<filename>')
 @limiter.limit("5 per second;30 per minute")
 @token_required
 def get_file(current_user, filename):
-    logger.info(f"Received request to get file: {filename}\n")
-    
     # Check if the user exists
     session = Session()
     user = session.query(User).get(current_user.id)
@@ -780,8 +844,9 @@ def get_thumbnail(current_user, thumbnailname):
     session = Session()
     user = session.query(User).get(current_user.id)
     if not user:
-        logger.error(f"User {user.username} not found.\n")
-        return jsonify({"status": "error", "message": f"User {user.username} not found."}), 404
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
 
     # Sanitize inputs
     thumbnailname = secure_filename(thumbnailname)
@@ -798,14 +863,13 @@ def get_thumbnail(current_user, thumbnailname):
 @limiter.limit("5 per second;30 per minute")
 @token_required
 def get_similar(current_user, filename):
-    logger.info(f"Received request to get similar to: {filename}\n")
-
     session = Session()
     try:
         user = session.query(User).get(current_user.id)
         if not user:
-            logger.error(f"User ID {current_user.id} not found.")
-            return jsonify({"error": "Invalid user"}), 404
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
 
         # Sanitize and construct path
         filename = secure_filename(filename)
@@ -815,14 +879,13 @@ def get_similar(current_user, filename):
         entry = session.query(DataEntry).filter_by(file_path=file_path, user_id=user.id).first()
         logger.info(f"entry: {entry} and entry.file_path: {entry.file_path}\n")
         if not entry:
-            logger.warning(f"No entry found for file_path: {file_path}")
-            return jsonify({"status": "error", "message": "File not found"}), 404
+            e = f"No entry found for file_path: {file_path}"
+            logger.error(e)
+            return error_response(e, 404)
         
         user_id = user.id
         file_path = entry.file_path
         query_vec = entry.tags_vector.tolist()
-        logger.info(f"typed query_vec: {type(query_vec)}\n")
-        logger.info(f"query_vec: {query_vec[:5]}...\n")
  
         # Build SQL
         final_sql = f"""
@@ -847,9 +910,10 @@ def get_similar(current_user, filename):
             ]
         }), 200
     except Exception as e:
-        logger.error(f"Error fetching similar content: {e}")
+        e = f"Error fetching similar content: {e}"
+        logger.error(e)
         traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return error_response(e, 500)
     finally:
         session.close()
 
@@ -864,7 +928,9 @@ def query(current_user):
 
     query_text = data.get("searchText", "").strip()
     if not query_text:
-        return jsonify({"error": "searchText required"}), 400
+        e = "searchText required"
+        logger.error(e)
+        return error_response(e, 400)
     
     cache_key = get_cache_key(current_user.id, query_text)
     if cache_key in query_cache:
@@ -874,7 +940,9 @@ def query(current_user):
     session = Session()
     user = session.query(User).get(current_user.id)
     if not user:
-        return jsonify({"error": "Invalid user"}), 404
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
 
     userid = user.id
     logger.info(f"Querying for userid: {userid}")
@@ -955,12 +1023,16 @@ def check(current_user):
 
     query_text = data.get("searchText", "").strip()
     if not query_text:
-        return jsonify({"error": "searchText required"}), 400
+        e = "searchText required"
+        logger.error(e)
+        return error_response(e, 400)
     
     session = Session()
     user = session.query(User).get(current_user.id)
     if not user:
-        return jsonify({"error": "Invalid user"}), 404
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
     
     # Extract color
     color_code = extract_color_code(query_text)
@@ -1026,7 +1098,9 @@ def bulk_download_all(current_user):
     session = Session()
     user = session.query(User).get(current_user.id)
     if not user:
-        return jsonify({"error": "Invalid user"}), 404
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
 
     # Query all data entries for the user
     user_files = session.execute(
