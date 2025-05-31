@@ -275,7 +275,7 @@ def restrict_headers():
 
     # Require custom header
     if not api_key or api_key != Config.APP_SECRET_KEY:
-        print(f"Rejected request with UA: {user_agent}, API key: {api_key}")
+        logger.error(f"Rejected request with UA: {user_agent}, API key: {api_key}")
         abort(403, description="Forbidden: Invalid or missing headers.")
 # endregion
 
@@ -474,7 +474,7 @@ def upload_image(current_user):
         # Clear cache for this user
         clear_user_cache(current_user.id)
 
-        return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'})
+        return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'}), 200
     
     except Exception as e:
         e = f"Error processing image upload: {e}"
@@ -526,8 +526,7 @@ def upload_imageurl(current_user):
             final_filepath = compress_image(f, app.config['UPLOAD_DIR'])
         
         # Generate and save thumbnail
-        thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
+        thumbnail_rel_path = generate_thumbnail(final_filepath, app.config['THUMBNAIL_DIR'])
 
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
@@ -554,7 +553,7 @@ def upload_imageurl(current_user):
         # Clear cache for this user
         clear_user_cache(current_user.id)
 
-        return jsonify({'status': 'success', 'message': 'Image from URL processed successfully'})
+        return jsonify({'status': 'success', 'message': 'Image from URL processed successfully'}), 200
     
     except Exception as e:
         e = f"Error processing image URL upload: {e}"
@@ -590,8 +589,7 @@ def upload_text(current_user):
         logger.info(f"Saved text to: {final_filepath}\n")
     
         # Generate and save thumbnail
-        thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
+        thumbnail_rel_path = generate_thumbnail(final_filepath, app.config['THUMBNAIL_DIR'])
 
         # Create embedding
         embedding = call_vec_api(selected_text)
@@ -614,7 +612,7 @@ def upload_text(current_user):
         # Clear cache for this user
         clear_user_cache(current_user.id)
 
-        return jsonify({'status': 'success', 'message': 'Text processed successfully'})
+        return jsonify({'status': 'success', 'message': 'Text processed successfully'}), 200
 
     except Exception as e:
         e = f"Error processing text upload: {e}"
@@ -650,8 +648,7 @@ def upload_url(current_user):
             final_filepath = compress_image(f, app.config['UPLOAD_DIR'])
     
         # Generate and save thumbnail
-        thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = generate_thumbnail(final_filepath, thumbnail_uuid_token)
+        thumbnail_rel_path = generate_thumbnail(final_filepath, app.config['THUMBNAIL_DIR'])
 
         # Convert image to base64
         IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
@@ -686,7 +683,7 @@ def upload_url(current_user):
         # Clear cache for this user
         clear_user_cache(current_user.id)
 
-        return jsonify({'status': 'success', 'message': 'URL processed successfully'})
+        return jsonify({'status': 'success', 'message': 'URL processed successfully'}), 200
     
     except Exception as e:
         e = f"Error processing text upload: {e}"
@@ -710,8 +707,7 @@ def upload_pdf(current_user):
         save_path = os.path.join(app.config["UPLOAD_DIR"], timestamped_filename)
         file.save(save_path)
         
-        thumbnail_uuid_token = uuid.uuid4().hex
-        thumbnail_rel_path = generate_thumbnail(save_path, thumbnail_uuid_token)
+        thumbnail_rel_path = generate_thumbnail(save_path, app.config['THUMBNAIL_DIR'])
 
         image_b64_list = generate_img_b64_list(save_path)
         if not image_b64_list:
@@ -897,7 +893,7 @@ def get_similar(current_user, filename):
             "results": [
                 {
                     "file_name": os.path.basename(r[0]),
-                    "thumbnail_name": os.path.basename(r[1]),
+                    "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
                     "post_url": r[2]
                 } for r in results
             ]
@@ -945,7 +941,8 @@ def query(current_user):
 
     # Extract time and convert to timestamp
     start = time.perf_counter()
-    timestamp = parse_time_input(query_text)
+    user_tz = user.timezone if user and user.timezone else 'UTC'
+    timestamp = parse_time_input(query_text, user_tz)
     unix_time = int(timestamp.timestamp()) if timestamp else None
     logger.info(f"Query took {(time.perf_counter() - start) * 1000:.2f}ms")
 
@@ -986,13 +983,13 @@ def query(current_user):
     """
     sql = text(final_sql)
     result = session.execute(sql).fetchall()
-    logger.info(f"len result: {len(result)} and result[0] = {result[0]}\n")
+    logger.info(f"len result: {len(result)}\n")
 
     result_json = {
         "results": [
             {
-                "file_name": f"{os.path.basename(r[0])}",
-                "thumbnail_name": f"{os.path.basename(r[1])}",
+                "file_name": os.path.basename(r[0]),
+                "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
                 "post_url": r[2]
             }
             for r in result

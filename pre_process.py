@@ -93,9 +93,10 @@ def generate_text_thumbnail(source_path, dest_path, width=300, height=300):
 
         image.save(dest_path)
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"generate_text_thumbnail error: {e}")
         return
 def generate_thumbnail(file_path, thumbnail_dir):
+    logger.info(f"Generating thumbnail for {file_path}")
     try:
         thumbnail_uuid = uuid.uuid4().hex
         ext = file_path.lower()
@@ -115,5 +116,5 @@ def generate_thumbnail(file_path, thumbnail_dir):
         
         return final_thumbnail_path
     except Exception as e:
-        print(f"Failed to create thumbnail for {file_path}: {e}")
+        logger.error(f"Failed to create thumbnail for {file_path}: {e}")
         return None

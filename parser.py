@@ -34,18 +34,35 @@ def timezone_to_start_of_day_ts(tz_name):
 
     return start_of_day_ts
 
-def parse_time_input(text):
-    if not DATE_HINT_REGEX.search(text):
-        return None  # Short-circuit for non-date-like queries
+def parse_time_input(text, user_tz='UTC'):
+    logger.info(f"Parsing time input: {text} with user timezone: {user_tz}")
+    try:
+        if not DATE_HINT_REGEX.search(text):
+            return None
+        
+        user_timezone = pytz.timezone(user_tz)
+        now_user_tz = datetime.now(user_timezone)
+        time_struct, parse_status = cal.parse(text, now_user_tz.timetuple())
+        if parse_status == 0:
+            return None  # Couldn’t parse into a date
+        # logger.info(f"Parsed time struct: {time_struct}, status: {parse_status}")
 
-    time_struct, parse_status = cal.parse(text)
-    if parse_status == 0:
-        return None  # Couldn’t parse into a date
+        local_dt = datetime(*time_struct[:6])
+        # logger.info(f"local_dt: {local_dt.strftime('%d/%m/%Y %H:%M')}")
 
-    converted_time = datetime(*time_struct[:6])  # Convert to datetime
-    # logger.info(f"Parsed time: {converted_time}")
+        localized_dt = user_timezone.localize(local_dt)
+        # logger.info(f"localized_dt: {localized_dt.strftime('%d/%m/%Y %H:%M')}")
+            
+        normalized_local = localized_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        # logger.info(f"normalized_local: {normalized_local.strftime('%d/%m/%Y %H:%M')}")
 
-    return converted_time
+        # Convert to UTC
+        utc_dt = normalized_local.astimezone(pytz.utc)
+
+        return utc_dt
+    except Exception as e:
+        logger.error(f"Error parsing time input: {e}")
+        return None
 
 def is_color_code(text):
     return bool(re.match(r"^#(?:[0-9a-fA-F]{3}){1,2}$", text)) or \

@@ -112,6 +112,8 @@ ANALYZE data;
 - Use content in `nginx.config`
 - Link files with `sudo ln -s /etc/nginx/sites-available/<name> /etc/nginx/sites-enabled/`
 - Validate config with `sudo nginx -t`
+- Start with `sudo systemctl start nginx`
+- Check with `sudo systemctl status nginx`
 - Reload with `sudo systemctl reload nginx`
 
 ### HTTPS Setup
