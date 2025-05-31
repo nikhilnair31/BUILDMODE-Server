@@ -30,7 +30,7 @@ from image import (
     generate_img_b64_list
 )
 from browser import (
-    screenshot_url
+    screenshot_url,
 )
 from pre_process import (
     compress_image,
@@ -98,7 +98,11 @@ ENGINE_URL = f'postgresql://postgres:{Config.MIA_DB_PASSWORD}@localhost/{Config.
 # region Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logger.info(f"Connecting to database at: {ENGINE_URL}")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("google_genai.models").setLevel(logging.WARNING)
+logging.getLogger("joblib").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 def error_response(message, status_code=400, status='error', extra=None):
     payload = {
@@ -134,6 +138,7 @@ CORS(app, supports_credentials=True, resources={
 # endregion
 
 # region Database Initialization
+logger.info(f"Connecting to database at: {ENGINE_URL}")
 engine = create_engine(ENGINE_URL)
 Session = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
@@ -226,6 +231,9 @@ def save_limit_required(f):
             return error, status_code
         
         try:
+            if current_user.username in ['admin', 'root', 'superuser', 'nik', 'testing']:
+                logger.info("Admin user detected, skipping save limit check.")
+                return f(current_user, *args, **kwargs)
             if info['uploads_left'] <= 0:
                 e = f"Daily upload limit reached for user {current_user.username} | ({info['tier_name']} - {info['daily_limit']} per day)."
                 logger.warning(e)
@@ -506,17 +514,16 @@ def upload_imageurl(current_user):
         if url_ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
             raise Exception(f"Unsupported image format: {url_ext}. Only PNG, JPG, JPEG, and WEBP are allowed.")
         
+        # Save the image to a temporary file
         file_uuid_token = uuid.uuid4().hex
         temp_filename = secure_filename(f"{file_uuid_token}.jpg")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-
         with open(temp_path, "wb") as out_file:
             out_file.write(response.content)
 
-        processed_path = compress_image(temp_path, app.config['UPLOAD_DIR'])
-        final_filename = secure_filename(f"{file_uuid_token}.jpg")
-        final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
-        os.rename(processed_path, final_filepath)
+        # Compress and save to UPLOAD_DIR directly
+        with open(temp_path, "rb") as f:
+            final_filepath = compress_image(f, app.config['UPLOAD_DIR'])
         
         # Generate and save thumbnail
         thumbnail_uuid_token = uuid.uuid4().hex
@@ -620,8 +627,6 @@ def upload_text(current_user):
 @token_required
 @save_limit_required
 def upload_url(current_user):
-    logger.info("\nReceived request to upload URL\n")
-
     try:
         url = request.form['url']
 
@@ -632,24 +637,17 @@ def upload_url(current_user):
             e = f"User ID {current_user.id} not found"
             logger.error(e)
             return error_response(e, 404)
-        logger.info(f"Received from {user.username} a url: {url}\n")
+        logger.info(f"Received from {user.username} a url: {url[:25]}\n")
         
-        # Take screenshot
+        # Take screenshot and save to temp file
         file_uuid_token = uuid.uuid4().hex
         temp_filename = secure_filename(f"{file_uuid_token}.jpg")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-
-        logger.info(f"Taking screenshot of {url}...")
-        screenshot_url(url, path=temp_path)
+        screenshot_url(url, path=temp_path, wait_seconds=2, headless=True)
         
-        # Downscale and save final image
-        processed_path = compress_image(open(temp_path, "rb"), app.config['UPLOAD_DIR'])
-
-        # Final filename and move
-        final_filename = secure_filename(f"{file_uuid_token}.jpg")
-        final_filepath = os.path.join(app.config['UPLOAD_DIR'], final_filename)
-        os.rename(processed_path, final_filepath)
-        logger.info(f"Saved processed image to: {final_filepath}\n")
+        # Compress and save to UPLOAD_DIR directly
+        with open(temp_path, "rb") as f:
+            final_filepath = compress_image(f, app.config['UPLOAD_DIR'])
     
         # Generate and save thumbnail
         thumbnail_uuid_token = uuid.uuid4().hex

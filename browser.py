@@ -1,16 +1,31 @@
 # browser.py
 
+import os
 import time
 import logging
+from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+PROXY_SERVER = os.getenv("PROXY_SERVER", "")
+PROXY_USERNAME = os.getenv("PROXY_USERNAME", "")
+PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
+
 def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
     def try_browser(browser_type):
         try:
-            browser = browser_type.launch(headless=headless)
+            browser = browser_type.launch(
+                headless=headless,
+                proxy={
+                    "server": PROXY_SERVER,
+                    "username": PROXY_USERNAME,
+                    "password": PROXY_PASSWORD,
+                }
+            )
             context = browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -61,13 +76,17 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
             """)
 
             page = context.new_page()
-            logger.info(f"Trying to visit {url}")
 
             try:
-                page.goto(url, wait_until="networkidle", timeout=10000)
+                page.goto(url, wait_until="networkidle", timeout=30000)
             except PlaywrightTimeoutError:
-                logger.warning("Timeout during page.goto. Retrying with 'load'")
-                page.goto(url, wait_until="load", timeout=10000)
+                logger.warning("Timeout during page.goto with 'networkidle'. Retrying with 'load'")
+                try:
+                    page.goto(url, wait_until="load", timeout=30000)
+                except PlaywrightTimeoutError as e:
+                    logger.error(f"Page.goto failed again with timeout: {e}")
+                    browser.close()
+                    return False
 
             time.sleep(wait_seconds)
 
@@ -89,8 +108,9 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
             content = page.content()
             blocked_keywords = [
                 "access denied", "blocked by", "network security", 
-                "sign in to confirm", "log in", "create an account", 
+                "sign in to confirm", 
                 "media could not be played"
+                # "log in", "create an account", 
             ]
             if any(kw.lower() in content.lower() for kw in blocked_keywords):
                 logger.warning("Page appears blocked or behind a login.")
