@@ -57,34 +57,35 @@ def upload_image(current_user):
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
         file.save(temp_path)
 
-        with open(temp_path, "rb") as f:
-            final_filepath = compress_image(f, Config.UPLOAD_DIR)
-
-        thumbnail_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
-
         # 1. Save initial info with PENDING status
         entry = DataEntry(
-            file_path=final_filepath,
-            thumbnail_path=thumbnail_path,
+            file_path=temp_path,
+            thumbnail_path=None, # Initially null
             post_url="-",
             tags=None, # Initially null
             tags_vector=None, # Initially null
             swatch_vector=None, # Initially null
             timestamp=int(time.time()),
             user_id=user.id,
-            status=ProcessingStatus.PENDING.value # Set initial status
+            status=ProcessingStatus.PENDING # Set initial status
         )
         session.add(entry)
         session.commit() # Commit to persist the PENDING entry and get its ID
         logger.info(f"DataEntry {entry.id} created with PENDING status.")
 
-        # Optional: Set status to PROCESSING
-        entry.status = ProcessingStatus.PROCESSING.value
+        with open(temp_path, "rb") as f:
+            final_filepath = compress_image(f, Config.UPLOAD_DIR)
+
+        thumbnail_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
+
+        # 2. Set status to PROCESSING
+        entry.file_path = final_filepath
+        entry.thumbnail_path = thumbnail_path
+        entry.status = ProcessingStatus.PROCESSING # Set final status
         session.commit()
         logger.info(f"DataEntry {entry.id} status updated to PROCESSING.")
 
         image_base64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
-
         content = call_llm_api(
             sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
             image_b64_list=image_base64
@@ -96,7 +97,7 @@ def upload_image(current_user):
         entry.tags = content
         entry.tags_vector = embedding
         entry.swatch_vector = swatch_vector
-        entry.status = ProcessingStatus.COMPLETED.value # Set final status
+        entry.status = ProcessingStatus.COMPLETED # Set final status
         session.commit()
         logger.info(f"DataEntry {entry.id} updated with COMPLETED status and processed data.")
 
@@ -112,7 +113,7 @@ def upload_image(current_user):
             try:
                 failed_entry = session.query(DataEntry).get(entry.id)
                 if failed_entry:
-                    failed_entry.status = ProcessingStatus.FAILED.value
+                    failed_entry.status = ProcessingStatus.FAILED
                     session.commit()
                     logger.info(f"DataEntry {failed_entry.id} status updated to FAILED.")
             except Exception as re_e:

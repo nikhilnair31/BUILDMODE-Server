@@ -18,11 +18,25 @@ from sqlalchemy import (
 
 Base = declarative_base()
 
-class ProcessingStatus(enum.Enum):
+class ProcessingStatus(str):
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+class DataEntry(Base):
+    __tablename__ = 'data'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer)
+    thumbnail_path = Column(String)
+    file_path = Column(String)
+    post_url = Column(String)
+    tags = Column(String)
+    tags_vector = Column(Vector(768))
+    swatch_vector = Column(Vector(30))
+    status = Column(String, default=ProcessingStatus.PENDING, nullable=False)
+    timestamp = Column(Integer)
 
 class User(Base):
     __tablename__ = 'users'
@@ -42,20 +56,6 @@ class User(Base):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
-
-class DataEntry(Base):
-    __tablename__ = 'data'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer)
-    thumbnail_path = Column(String)
-    file_path = Column(String)
-    post_url = Column(String)
-    tags = Column(String)
-    tags_vector = Column(Vector(768))
-    swatch_vector = Column(Vector(30))
-    status = Column(String, default=ProcessingStatus.PENDING.value, nullable=False)
-    timestamp = Column(Integer)
 
 class Tier(Base):
     __tablename__ = 'tiers'
