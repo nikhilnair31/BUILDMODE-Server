@@ -10,6 +10,9 @@ class Config:
     MIA_DB_PASSWORD = os.getenv("MIA_DB_PASSWORD")
     THUMBNAIL_DIR = os.getenv("THUMBNAIL_DIR")
     UPLOAD_DIR = os.getenv("UPLOAD_DIR")
+    PROXY_SERVER = os.getenv("PROXY_SERVER")
+    PROXY_USERNAME = os.getenv("PROXY_USERNAME")
+    PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
     # Database URL
     ENGINE_URL = f'postgresql://postgres:{MIA_DB_PASSWORD}@localhost/{MIA_DB_NAME}'

@@ -1,3 +1,5 @@
+# file_management.py
+
 import os
 import base64
 import time
@@ -13,7 +15,7 @@ from flask import request, jsonify, send_file, send_from_directory, abort
 from werkzeug.utils import secure_filename
 from routes import file_management_bp
 from core.database.database import get_db_session
-from core.database.models import DataEntry, User
+from core.database.models import DataEntry, User, ProcessingStatus
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required, save_limit_required
 from core.utils.cache import clear_user_cache
@@ -25,10 +27,13 @@ from core.ai.ai import call_llm_api, call_vec_api
 logger = logging.getLogger(__name__)
 
 @file_management_bp.route('/upload/image', methods=['POST'])
-# @limiter.limit("1 per second")
 @token_required
 @save_limit_required
 def upload_image(current_user):
+    session = None
+    entry = None
+    temp_path = None
+    final_filepath = None
     try:
         logger.info("\nReceived request to upload image\n")
         file = request.files.get('image')
@@ -44,30 +49,56 @@ def upload_image(current_user):
             logger.error(e)
             return error_response(e, 404)
 
-        final_filepath = compress_image(file, Config.UPLOAD_DIR)
+        # Save initial file to temp and then compress to final location
+        file_uuid_token = uuid.uuid4().hex
+        original_filename = secure_filename(file.filename)
+        original_ext = os.path.splitext(original_filename)[1]
+        temp_filename = f"{file_uuid_token}{original_ext}"
+        temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+        file.save(temp_path)
+
+        with open(temp_path, "rb") as f:
+            final_filepath = compress_image(f, Config.UPLOAD_DIR)
+
         thumbnail_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
 
-        IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
+        # 1. Save initial info with PENDING status
+        entry = DataEntry(
+            file_path=final_filepath,
+            thumbnail_path=thumbnail_path,
+            post_url="-",
+            tags=None, # Initially null
+            tags_vector=None, # Initially null
+            swatch_vector=None, # Initially null
+            timestamp=int(time.time()),
+            user_id=user.id,
+            status=ProcessingStatus.PENDING.value # Set initial status
+        )
+        session.add(entry)
+        session.commit() # Commit to persist the PENDING entry and get its ID
+        logger.info(f"DataEntry {entry.id} created with PENDING status.")
+
+        # Optional: Set status to PROCESSING
+        entry.status = ProcessingStatus.PROCESSING.value
+        session.commit()
+        logger.info(f"DataEntry {entry.id} status updated to PROCESSING.")
+
+        image_base64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
 
         content = call_llm_api(
             sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64_list=IMAGE_BASE64
+            image_b64_list=image_base64
         )
         embedding = call_vec_api(content)
         swatch_vector = extract_distinct_colors(final_filepath)
 
-        entry = DataEntry(
-            file_path=final_filepath, 
-            thumbnail_path=thumbnail_path,
-            post_url="-",
-            tags=content, 
-            tags_vector=embedding,
-            swatch_vector=swatch_vector,
-            timestamp=int(time.time()),
-            user_id=user.id,
-        )
-        session.add(entry)
+        # 3. Update existing record with results and COMPLETED status
+        entry.tags = content
+        entry.tags_vector = embedding
+        entry.swatch_vector = swatch_vector
+        entry.status = ProcessingStatus.COMPLETED.value # Set final status
         session.commit()
+        logger.info(f"DataEntry {entry.id} updated with COMPLETED status and processed data.")
 
         clear_user_cache(current_user.id)
         return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'}), 200
@@ -76,9 +107,23 @@ def upload_image(current_user):
         e = f"Error processing image upload: {e}"
         logger.error(e)
         traceback.print_exc()
+        if session and entry:
+            session.rollback()
+            try:
+                failed_entry = session.query(DataEntry).get(entry.id)
+                if failed_entry:
+                    failed_entry.status = ProcessingStatus.FAILED.value
+                    session.commit()
+                    logger.info(f"DataEntry {failed_entry.id} status updated to FAILED.")
+            except Exception as re_e:
+                logger.error(f"Failed to update DataEntry {entry.id} to FAILED status: {re_e}")
+
         return error_response(e, 500)
     finally:
-        session.close()
+        if session:
+            session.close()
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @file_management_bp.route('/upload/imageurl', methods=['POST'])
 # @limiter.limit("1 per second")

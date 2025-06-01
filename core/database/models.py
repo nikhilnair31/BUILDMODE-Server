@@ -1,5 +1,6 @@
 # models.py
 
+import enum
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -11,10 +12,17 @@ from sqlalchemy import (
     Column, 
     Integer, 
     String,
-    ForeignKey
+    ForeignKey,
+    Enum
 )
 
 Base = declarative_base()
+
+class ProcessingStatus(enum.Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 class User(Base):
     __tablename__ = 'users'
@@ -46,6 +54,7 @@ class DataEntry(Base):
     tags = Column(String)
     tags_vector = Column(Vector(768))
     swatch_vector = Column(Vector(30))
+    status = Column(String, default=ProcessingStatus.PENDING.value, nullable=False)
     timestamp = Column(Integer)
 
 class Tier(Base):

@@ -1,19 +1,11 @@
 # browser.py
 
-import os
 import time
 import logging
-from dotenv import load_dotenv
+from core.utils.config import Config
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-PROXY_SERVER = os.getenv("PROXY_SERVER", "")
-PROXY_USERNAME = os.getenv("PROXY_USERNAME", "")
-PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
 
 def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
     def try_browser(browser_type):
@@ -21,9 +13,9 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
             browser = browser_type.launch(
                 headless=headless,
                 proxy={
-                    "server": PROXY_SERVER,
-                    "username": PROXY_USERNAME,
-                    "password": PROXY_PASSWORD,
+                    "server": Config.PROXY_SERVER,
+                    "username": Config.PROXY_USERNAME,
+                    "password": Config.PROXY_PASSWORD,
                 }
             )
             context = browser.new_context(
