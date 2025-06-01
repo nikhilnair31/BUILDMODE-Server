@@ -4,7 +4,7 @@ import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from core.utils.config import Config
-from core.models.models import Base # Corrected import path
+from core.database.models import Base # Corrected import path
 
 logger = logging.getLogger(__name__)
 

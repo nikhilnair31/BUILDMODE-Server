@@ -8,6 +8,13 @@ from core.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
+def get_ip():
+    # logger.info(f"request.headers: {dict(request.headers)}\n")
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    ip = forwarded_for.split(',')[0] if forwarded_for else request.headers.get('X-Real-IP', request.remote_addr)
+    logger.info(f"Detected IP: {ip}")
+    return ip
+
 def apply_middleware(app):
     app.config.from_object(Config)
 

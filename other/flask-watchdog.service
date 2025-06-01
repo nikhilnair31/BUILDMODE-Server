@@ -1,0 +1,17 @@
+[Unit]
+Description=Watchdog to auto-restart Flask systemd service on app.py changes
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/flask_watchdog/watch_flask_restart.py
+WorkingDirectory=/root/projects/BUILDMODE-Server
+Restart=always
+RestartSec=5
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=append:/var/log/flask_watchdog.log
+StandardError=append:/var/log/flask_watchdog_error.log
+
+[Install]
+WantedBy=multi-user.target

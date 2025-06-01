@@ -5,8 +5,8 @@ import hashlib
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-WATCH_FILE = 'projects/mia-2/app.py'
-SERVICE_NAME = 'mia2.service'
+WATCH_FILE = '../app.py'
+SERVICE_NAME = 'forgor-api.service'
 CHECK_INTERVAL = 2  # seconds
 DEBOUNCE_DELAY = 10  # seconds to wait before acting on change
 
