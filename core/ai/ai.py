@@ -1,9 +1,15 @@
+# ai.py
+
 import os
+import logging
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 LLM_PROVIDER = "gemini"
 VEC_PROVIDER = "gemini"

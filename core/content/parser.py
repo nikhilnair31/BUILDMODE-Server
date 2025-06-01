@@ -19,20 +19,17 @@ cal = parsedatetime.Calendar()
 def timezone_to_start_of_day_ts(tz_name):
     try:
         user_tz = pytz.timezone(tz_name)
+
+        now_local = datetime.now(user_tz)
+
+        start_of_day_local = user_tz.localize(datetime(now_local.year, now_local.month, now_local.day, 0, 0, 0))
+        start_of_day_utc = start_of_day_local.astimezone(pytz.UTC)
+        start_of_day_ts = int(start_of_day_utc.timestamp())
+
+        return start_of_day_ts
     except Exception as e:
         logger.warning(f"Invalid timezone received: {tz_name}. Defaulting to UTC.")
-        user_tz = pytz.UTC
-
-    # Current time in user's timezone
-    now_local = datetime.now(user_tz)
-    logger.info(f"User's local time: {now_local}")
-
-    # Start of day in local time, then converted to UTC
-    start_of_day_local = user_tz.localize(datetime(now_local.year, now_local.month, now_local.day, 0, 0, 0))
-    start_of_day_utc = start_of_day_local.astimezone(pytz.UTC)
-    start_of_day_ts = int(start_of_day_utc.timestamp())
-
-    return start_of_day_ts
+        return int(datetime.now(pytz.UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 
 def parse_time_input(text, user_tz='UTC'):
     logger.info(f"Parsing time input: {text} with user timezone: {user_tz}")

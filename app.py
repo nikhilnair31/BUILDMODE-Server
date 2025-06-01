@@ -25,29 +25,27 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from image import (
+from core.content.images import (
     extract_distinct_colors,
-    generate_img_b64_list
-)
-from browser import (
-    screenshot_url,
-)
-from pre_process import (
+    generate_img_b64_list,
     compress_image,
     generate_thumbnail
 )
-from parser import (
+from core.browser.browser import (
+    screenshot_url,
+)
+from core.content.parser import (
     parse_time_input,
     extract_color_code,
     timezone_to_start_of_day_ts,
     clean_text_of_color_and_time,
     rgb_to_vec
 )
-from ai import (
+from core.ai.ai import (
     call_llm_api,
     call_vec_api
 )
-from models import (
+from core.database.models import (
     Base,
     DataEntry,
     User,
@@ -423,6 +421,7 @@ def upload_image(current_user):
     try:
         logger.info("\nReceived request to upload image\n")
 
+        # Check if file was sent over
         file = request.files['image']
         if not file:
             logger.error("No image file provided.")

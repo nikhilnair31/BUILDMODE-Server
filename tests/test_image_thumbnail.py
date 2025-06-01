@@ -8,8 +8,8 @@ import uuid
 import logging
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from models import Base, DataEntry
-from pre_process import generate_thumbnail
+from core.database.models import Base, DataEntry
+from core.content.pre_process import generate_thumbnail
 from dotenv import load_dotenv
 
 # Load environment variables

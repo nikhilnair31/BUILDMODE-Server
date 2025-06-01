@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from browser import screenshot_url
+from core.browser.browser import screenshot_url
 
 TARGET_URLS = [
     # 'https://www.google.com/search?client=ms-android-google&sca_esv=f37af7071d948b3e&sxsrf=AHTn8zpGZRNViWdXhEieyTFYiyNlwT1oMg:1747748707062&udm=2&fbs=ABzOT_DnPN66xNYYiVBYF80MNa9-mD9FW2KvyJ7Ee6i9AfRy7R1eW7fYkhs9lmIjuzf1c814hZBiGsd-xVdQMnO74TAYG6xVs_Jf6ReezTSHZRPh3_w0bBX_usS_cVABLSvTy-g77wOYE-5sKMlfUjz3Mk7JzD5YpsEgzF3hjloZGfrIdTU197bRF-FVoEQwZ9uzNuKy6VZ0ibRhiueJ-W5klyY-kVjnKb5u2mW7lTRXX0F25uESjF0&q=mymind&sa=X&sqi=2&ved=2ahUKEwiagt2ml7KNAxW4EVkFHdqzNJ8QtKgLegQIGxAB&biw=411&bih=784&dpr=2.63',

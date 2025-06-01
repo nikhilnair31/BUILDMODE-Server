@@ -7,7 +7,7 @@ from sqlalchemy import text, create_engine
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import normalize
-from ai import (
+from core.ai.ai import (
     call_vec_api
 )
 

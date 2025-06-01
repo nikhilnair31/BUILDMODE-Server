@@ -5,11 +5,11 @@ import random
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text, create_engine
-from models import (
+from core.database.models import (
     DataEntry,
     User
 )
-from image import (
+from core.image.image import (
     extract_distinct_colors
 )
 
