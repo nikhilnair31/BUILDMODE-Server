@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Initialize and apply middleware (CORS, Limiter, ProxyFix, Before Request)
-# Note: Limiter is returned if you need to access it later, but not strictly needed for this
+# Note: Limiter is returned if you need to access it later, but not strictly needed for this pattern
 _ = apply_middleware(app)
 
 # Initialize Database
