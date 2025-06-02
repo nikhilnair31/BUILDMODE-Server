@@ -8,6 +8,12 @@ from core.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
+# Make limiter global
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["100 per day", "30 per hour"]
+)
+
 def get_ip():
     # logger.info(f"request.headers: {dict(request.headers)}\n")
     forwarded_for = request.headers.get('X-Forwarded-For', '')
@@ -20,12 +26,8 @@ def apply_middleware(app):
 
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
-    # Rate Limiting
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-        default_limits=["100 per day", "30 per hour"]
-    )
+    # Attach limiter to app
+    limiter.init_app(app)
 
     # CORS
     CORS(app, supports_credentials=True, resources={
@@ -44,6 +46,7 @@ def apply_middleware(app):
 
         user_agent = request.headers.get("User-Agent", "")
         api_key = request.headers.get("X-App-Key", None)
+        logger.info(f'user_agent: {user_agent}\napi_key: {api_key}')
 
         # Allow during development/testing
         if "python" in user_agent.lower() or "postman" in user_agent.lower():

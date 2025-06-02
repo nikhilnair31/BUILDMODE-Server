@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 from routes import file_management_bp
 from core.database.database import get_db_session
 from core.database.models import DataEntry, User, ProcessingStatus
+from core.utils.middleware import limiter
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required, save_limit_required
 from core.utils.cache import clear_user_cache
@@ -268,7 +269,12 @@ def upload_url(current_user):
         file_uuid_token = uuid.uuid4().hex
         temp_filename = secure_filename(f"{file_uuid_token}.jpg")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-        screenshot_url(url, path=temp_path, wait_seconds=2, headless=True)
+        try:
+            screenshot_url(url, path=temp_path, wait_seconds=2, headless=True)
+        except RuntimeError as e:
+            e = f'Failed to screenshot the URL: {e}'
+            logger.error(e)
+            return error_response(e, 400)
         
         with open(temp_path, "rb") as f:
             final_filepath = compress_image(f, Config.UPLOAD_DIR)
@@ -426,7 +432,7 @@ def get_file(current_user, filename):
     return send_from_directory(Config.UPLOAD_DIR, filename)
 
 @file_management_bp.route('/get_thumbnail/<thumbnailname>')
-# @limiter.limit("5 per second;30 per minute")
+@limiter.limit("25 per second")
 @token_required
 def get_thumbnail(current_user, thumbnailname):
     session = get_db_session()

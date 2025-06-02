@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
     def try_browser(browser_type):
+        browser = None
+        context = None
         try:
             browser = browser_type.launch(
                 headless=headless,
@@ -30,24 +32,15 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
                 timezone_id='America/New_York',
             )
 
-            # Fake non-headless environment
+            # Anti-bot + modal blockers
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
-                // Remove modal popups (non-cookie)
-                setInterval(() => {
-                    const modals = document.querySelectorAll('div[role="dialog"], .popup, .modal, .overlay');
-                    modals.forEach(el => el.style.display = 'none');
-                }, 1000);
                 window.chrome = { runtime: {} };
                 Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
                 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            """)
-
-            # Remove common popups
-            context.add_init_script("""
-                const removeAnnoyances = () => {
+                const hideStuff = () => {
                     const selectors = [
-                        'div[role="dialog"]', '.popup', '.modal', '.overlay', '.backdrop',
+                        'div[role="dialog"]', '.popup', '.modal', '.overlay',
                         '[data-testid="sheetDialog"]', '.fc-consent-root',
                         '[id^="modal"]', '.ytp-popup', '.ytp-modal-dialog',
                         '.RveJvd.snByac', '.Ax4B8.ZAGvjd',
@@ -56,7 +49,6 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
                     selectors.forEach(sel => {
                         document.querySelectorAll(sel).forEach(el => el.remove());
                     });
-
                     document.querySelectorAll('*').forEach(el => {
                         const style = getComputedStyle(el);
                         if (style.zIndex > 1000 && style.position === 'fixed') {
@@ -64,7 +56,7 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
                         }
                     });
                 };
-                setInterval(removeAnnoyances, 1000);
+                setInterval(hideStuff, 1000);
             """)
 
             page = context.new_page()
@@ -77,12 +69,11 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
                     page.goto(url, wait_until="load", timeout=30000)
                 except PlaywrightTimeoutError as e:
                     logger.error(f"Page.goto failed again with timeout: {e}")
-                    browser.close()
                     return False
 
             time.sleep(wait_seconds)
 
-            # Try cookie banner dismissals
+            # Dismiss cookie modals
             for selector in [
                 'button:has-text("Accept")',
                 'button:has-text("Accept All")',
@@ -99,24 +90,34 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
 
             content = page.content()
             blocked_keywords = [
-                "access denied", "blocked by", "network security", 
-                "sign in to confirm", 
-                "media could not be played"
-                # "log in", "create an account", 
+                "access denied", "blocked by", "network security",
+                "sign in to confirm", "media could not be played"
             ]
-            if any(kw.lower() in content.lower() for kw in blocked_keywords):
+            if any(kw in content.lower() for kw in blocked_keywords):
                 logger.warning("Page appears blocked or behind a login.")
 
             page.screenshot(path=path)
             logger.info(f"Screenshot saved to {path}")
-            browser.close()
             return True
+
         except Exception as e:
             logger.error(f"Failed to screenshot with {browser_type.name}: {e}")
             return False
 
+        finally:
+            if context:
+                try:
+                    context.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close context cleanly: {e}")
+            if browser:
+                try:
+                    browser.close()
+                except Exception as e:
+                    logger.warning(f"Failed to close browser cleanly: {e}")
+
     with sync_playwright() as p:
-        for browser_type in [p.chromium, p.firefox, p.webkit]:
+        for browser_type in [p.chromium]:  # Limit to Chromium for stability
             if try_browser(browser_type):
                 return
         raise RuntimeError("All screenshot attempts failed.")
