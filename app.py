@@ -1,9 +1,11 @@
 # app.py
 
+import atexit
 import logging
 import warnings
 from flask import Flask
 from routes import register_routes
+from core.browser.browser import shutdown_browser
 from core.utils.middleware import apply_middleware
 from core.database.database import init_db
 
@@ -28,3 +30,5 @@ init_db()
 
 # Register Blueprints
 register_routes(app)
+
+atexit.register(shutdown_browser)
