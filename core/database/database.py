@@ -15,9 +15,11 @@ def init_db():
     global engine, Session
     if engine is None:
         logger.info(f"Connecting to database at: {Config.ENGINE_URL}")
+        
         engine = create_engine(Config.ENGINE_URL)
         Session = sessionmaker(bind=engine)
         Base.metadata.create_all(bind=engine)
+        
         logger.info("Database initialized.")
 
 def get_db_session():

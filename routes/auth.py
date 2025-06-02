@@ -1,3 +1,5 @@
+# auth.py
+
 import jwt
 import datetime
 import time
@@ -52,6 +54,7 @@ def refresh_token():
 def register():
     data = request.get_json()
     username = data.get('username', '').strip()
+    email = data.get('email', '').strip()
     password = data.get('password', '').strip()
     timezone = data.get('timezone', '').strip()
     
@@ -63,6 +66,7 @@ def register():
 
         new_user = User(
             username=username,
+            email=email,
             timezone=timezone,
             created_at=int(time.time()),
             updated_at=int(time.time())

@@ -1,6 +1,5 @@
 # models.py
 
-import enum
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -43,6 +42,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True)
+    email = Column(String)
     timezone = Column(String, default='UTC')
     password_hash = Column(String)
     created_at = Column(Integer)
