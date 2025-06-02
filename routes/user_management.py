@@ -29,6 +29,25 @@ def update_username(current_user):
     
     return jsonify({'message': 'Username updated'}), 200
 
+@user_management_bp.route('/update-email', methods=['POST'])
+# @limiter.limit("1 per second")
+@token_required
+def update_email(current_user):
+    data = request.get_json()
+
+    session = get_db_session()
+    try:
+        if session.query(User).filter_by(email=data['new_email']).first():
+            return error_response("Email already taken", 400)
+
+        user = session.query(User).get(current_user.id)
+        user.email = data['new_email']
+        session.commit()
+    finally:
+        session.close()
+    
+    return jsonify({'message': 'Email updated'}), 200
+
 @user_management_bp.route('/get_saves_left', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
