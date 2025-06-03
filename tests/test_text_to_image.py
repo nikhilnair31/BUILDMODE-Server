@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def generate_text_thumbnail(source_path, dest_path, width=300, height=300):
+def generate_text_thumbnail(source_path, dest_path, width=800, height=450):
     try:
         # Choose a basic font if not specified
         font_size = 24
@@ -69,6 +69,6 @@ def generate_thumbnail(file_path, thumbnail_dir):
     
 if __name__ == "__main__":
     generate_thumbnail(
-        'uploads/f6ae47abe52a4de58e4b6890154b1b55.txt',
+        './uploads/1541ed115982429ab8aed5ac49ef4e68.txt',
         './'
     )
