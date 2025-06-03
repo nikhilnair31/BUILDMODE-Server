@@ -188,7 +188,7 @@ def generate_thumbnail(file_path, thumbnail_dir):
     try:
         thumbnail_uuid = uuid.uuid4().hex
         ext = file_path.lower()
-        dest_path = f"/{thumbnail_uuid}.jpg"
+        dest_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
 
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             generate_image_thumbnail(file_path, dest_path)
@@ -199,7 +199,7 @@ def generate_thumbnail(file_path, thumbnail_dir):
         else:
             return None  # unsupported
         
-        final_thumbnail_path = f"/{thumbnail_uuid}.jpg"
+        final_thumbnail_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
         logger.info(f"Thumbnail created at {final_thumbnail_path}")
         
         return final_thumbnail_path
