@@ -146,18 +146,39 @@ def generate_pdf_thumbnail(source_path, dest_path):
     images[0].save(dest_path, "JPEG")
 def generate_text_thumbnail(source_path, dest_path, width=300, height=300):
     try:
-        font = ImageFont.load_default()
-        image = Image.new('RGB', (width, height), color='white')
-        draw = ImageDraw.Draw(image)
+        # Choose a basic font if not specified
+        font_size = 24
+        padding = 20
+        font = ImageFont.truetype(
+            font = 'assets/venus_cormier.otf' or "arial.ttf", 
+            size = font_size
+        )
+        # Estimate height dynamicallyAdd commentMore actions
+        lines = []
+        draw = ImageDraw.Draw(Image.new("RGB", (width, 1000)))
         
         with open(source_path, 'r') as f:
-            lines = f.readlines()[:10]
+            text = f.readlines()
         
-        y = 10
+        words = text.split()
+        line = ""
+        for word in words:
+            if draw.textlength(line + " " + word, font=font) < width - 2 * padding:
+                line += " " + word
+            else:
+                lines.append(line.strip())
+                line = word
+        lines.append(line.strip())
+        
+        height = padding * 2 + len(lines) * (font_size + 10)
+        image = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(image)
+        
+        y = padding
         for line in lines:
-            draw.text((10, y), line.strip(), font=font, fill='black')
-            y += 15
-
+            draw.text((padding, y), line, font=font, fill="black")
+            y += font_size + 10
+        
         image.save(dest_path)
     except Exception as e:
         logger.error(f"generate_text_thumbnail error: {e}")
@@ -167,7 +188,7 @@ def generate_thumbnail(file_path, thumbnail_dir):
     try:
         thumbnail_uuid = uuid.uuid4().hex
         ext = file_path.lower()
-        dest_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
+        dest_path = f"/{thumbnail_uuid}.jpg"
 
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             generate_image_thumbnail(file_path, dest_path)
@@ -178,7 +199,7 @@ def generate_thumbnail(file_path, thumbnail_dir):
         else:
             return None  # unsupported
         
-        final_thumbnail_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
+        final_thumbnail_path = f"/{thumbnail_uuid}.jpg"
         logger.info(f"Thumbnail created at {final_thumbnail_path}")
         
         return final_thumbnail_path
