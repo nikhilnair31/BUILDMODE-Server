@@ -1,0 +1,88 @@
+server {
+    server_name forgor.space www.forgor.space;
+
+    root /var/www/FORGOR-Website/dist/;
+    index index.html;
+
+    client_max_body_size 20M;
+
+    location / {
+        try_files $uri $uri/ $uri.html =404;
+        # Apply the website-specific rate limit here
+        limit_req zone=website_limit burst=10 nodelay; # 'nodelay' prevents queuing, rejects excess immediately
+    }
+
+    location /.well-known/ {
+        alias /var/www/FORGOR-Website/.well-known/;
+        allow all;
+    }
+
+    location /_astro/ {
+        root /var/www/FORGOR-Website/dist;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+
+        # You might also want to apply the website limit here, as these are static assets
+        limit_req zone=website_limit burst=10 nodelay;
+    }
+
+    location ~ ^/api/get_thumbnail/ {
+        # Rate limit
+        limit_req zone=thumb_limit burst=10;
+
+        # Block scraping
+        if ($http_user_agent ~* (curl|wget|bot|scrapy|python-requests)) {
+            return 403;
+        }
+        if ($http_user_agent = "") {
+            return 403;
+        }
+
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    location /api/ {
+        # Apply the API-specific (harsher) rate limit here
+        limit_req zone=api_limit burst=5 nodelay;
+
+        # Block scraping
+        if ($http_user_agent ~* (curl|wget|bot|scrapy|python-requests)) {
+            return 403;
+        }
+        if ($http_user_agent = "") {
+            return 403;
+        }
+        
+        proxy_pass http://127.0.0.1:5000;  # Your Flask app
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization $http_authorization;
+    }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/forgor.space/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/forgor.space/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+}
+server {
+    if ($host = www.forgor.space) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+    if ($host = forgor.space) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+    listen 80;
+    server_name forgor.space www.forgor.space;
+    return 404; # managed by Certbot
+}
