@@ -87,9 +87,13 @@ def compress_image(tempfile):
         max_size_kb = 500
 
         temp_path = tempfile.name
-        file_name = temp_path.split('/tmp/')[1]
-        name = file_name.split('.')[0]
-        ext = file_name.split('.')[1]
+        file_name = os.path.basename(temp_path)
+        if '.' not in file_name:
+            logger.error(f"Invalid file name format: {file_name}")
+            return None
+
+        name, ext = os.path.splitext(file_name)
+        ext = ext.lower().lstrip('.')  # 'jpg', 'jpeg', etc.
         # logger.info(f'\ntemp_path:{temp_path}\nfile_name: {file_name}\nname: {name}\next:{ext}')
 
         final_filename = secure_filename(f"{name}.jpg")

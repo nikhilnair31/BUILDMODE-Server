@@ -1,6 +1,6 @@
 # core/processing/background.py
 
-import time, os, shutil, logging, tempfile, base64, traceback
+import time, os, shutil, logging, tempfile, threading, base64, traceback
 from core.utils.config import Config
 from concurrent.futures import ThreadPoolExecutor
 from core.browser.browser import screenshot_url
@@ -11,6 +11,10 @@ from core.ai.ai import call_llm_api, call_vec_api
 
 logger = logging.getLogger(__name__)
 executor = ThreadPoolExecutor(max_workers=4)
+
+def encode_image_to_base64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
 def process_entry_async(staging_entry_id):
     executor.submit(_process_entry, staging_entry_id)
@@ -40,8 +44,10 @@ def _process_entry(entry_id):
         if source_type in ['image', 'imageurl']:
             with open(final_filepath, "rb") as f:
                 new_filepath = compress_image(f)
+                if not new_filepath:
+                    raise Exception("Compression failed; new_filepath is None")
 
-            image_base64 = [base64.b64encode(open(new_filepath, "rb").read()).decode("utf-8")]
+            image_base64 = [encode_image_to_base64(new_filepath)]
             tags_list_str = call_llm_api(
                 sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
                 text_or_images=image_base64
@@ -80,12 +86,23 @@ def _process_entry(entry_id):
             name = os.path.splitext(os.path.basename(original_path))[0]
             screenshot_temp = os.path.join(tempfile.gettempdir(), f"{name}.jpg")
 
-            screenshot_url(url, path=screenshot_temp)
+            # Create a thread to run screenshot_url
+            screenshot_success = [False]
+
+            def run_screenshot():
+                screenshot_success[0] = screenshot_url(url, path=screenshot_temp)
+
+            t = threading.Thread(target=run_screenshot)
+            t.start()
+            t.join()
+
+            if not screenshot_success[0] or not os.path.exists(screenshot_temp):
+                raise FileNotFoundError(f"Screenshot failed or file not found: {screenshot_temp}")
 
             with open(screenshot_temp, "rb") as f:
                 final_filepath = compress_image(f)
 
-            image_base64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
+            image_base64 = [encode_image_to_base64(final_filepath)]
             tags_list_str = call_llm_api(
                 sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
                 text_or_images=image_base64
