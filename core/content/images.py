@@ -6,9 +6,9 @@ import uuid
 import fitz
 import base64
 import logging
-import tempfile
 import numpy as np
 from sklearn.cluster import KMeans
+from core.utils.config import Config
 from pdf2image import convert_from_path
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw, ImageFont
@@ -81,61 +81,58 @@ def generate_img_b64_list(save_path):
     
     return image_b64_list
 
-def compress_image(file, upload_dir):
-    file_uuid = uuid.uuid4().hex
-    
-    # Determine file extension safely
-    if hasattr(file, 'filename'):
-        ext = os.path.splitext(file.filename)[1].lower()
-        filename = secure_filename(f"{file_uuid}{ext}")
-        temp_path = os.path.join(tempfile.gettempdir(), filename)
-        file.save(temp_path)
-    else:
-        # Assume file is a file-like object (e.g., open("path", "rb"))
-        ext = '.jpg'  # fallback extension, optionally infer from content
-        filename = f"{file_uuid}{ext}"
-        temp_path = os.path.join(tempfile.gettempdir(), filename)
-        with open(temp_path, "wb") as out_file:
-            out_file.write(file.read())
+def compress_image(tempfile):
+    logger.info(f"Compressing image at {tempfile}")
+    try:
+        max_size_kb = 500
 
-    final_filename = secure_filename(f"{file_uuid}.jpg")
-    final_filepath = os.path.join(upload_dir, final_filename)
-    max_size_kb = 500
+        temp_path = tempfile.name
+        file_name = temp_path.split('/tmp/')[1]
+        name = file_name.split('.')[0]
+        ext = file_name.split('.')[1]
+        # logger.info(f'\ntemp_path:{temp_path}\nfile_name: {file_name}\nname: {name}\next:{ext}')
 
-    img = Image.open(temp_path)
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+        final_filename = secure_filename(f"{name}.jpg")
+        final_filepath = os.path.join(Config.UPLOAD_DIR, final_filename)
+        # logger.info(f'\nfinal_filename:{final_filename}\nfinal_filepath: {final_filepath}')
 
-    img_format = 'JPEG' if ext in ['.jpg', '.jpeg'] else 'PNG'
+        img_format = 'JPEG' if ext in ['.jpg', '.jpeg'] else 'PNG'
 
-    scale = 1.0
-    while scale > 0.1:
-        resized = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
-        buffer = io.BytesIO()
+        img = Image.open(temp_path)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
 
-        if img_format == 'JPEG':
-            for quality in range(85, 10, -5):
-                buffer.seek(0)
-                buffer.truncate(0)
-                resized.save(buffer, format=img_format, quality=quality, optimize=True, exif=b'')
+        scale = 1.0
+        while scale > 0.1:
+            resized = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
+            buffer = io.BytesIO()
+
+            if img_format == 'JPEG':
+                for quality in range(85, 10, -5):
+                    buffer.seek(0)
+                    buffer.truncate(0)
+                    resized.save(buffer, format=img_format, quality=quality, optimize=True, exif=b'')
+                    if buffer.tell() <= max_size_kb:
+                        with open(final_filepath, 'wb') as f:
+                            f.write(buffer.getvalue())
+                        return final_filepath
+            else:  # PNG
+                resized.save(buffer, format=img_format, optimize=True)
                 if buffer.tell() <= max_size_kb:
                     with open(final_filepath, 'wb') as f:
                         f.write(buffer.getvalue())
                     return final_filepath
-        else:  # PNG
-            resized.save(buffer, format=img_format, optimize=True)
-            if buffer.tell() <= max_size_kb:
-                with open(final_filepath, 'wb') as f:
-                    f.write(buffer.getvalue())
-                return final_filepath
 
-        scale -= 0.1
+            scale -= 0.1
 
-    # Save last attempt even if not within size limit
-    img.save(final_filepath, format='JPEG', optimize=True)
-    logger.info(f"Compressed image saved to {final_filepath}")
+        # Save last attempt even if not within size limit
+        img.save(final_filepath, format='JPEG', optimize=True)
+        logger.info(f"Compressed image saved to {final_filepath}")
 
-    return final_filepath
+        return final_filepath
+    except Exception as e:
+        logger.error(f"Failed to compress image at {tempfile}: {e}")
+        return None
 
 def generate_image_thumbnail(source_path, dest_path, size=(300, 300)):
     with Image.open(source_path) as img:
@@ -193,12 +190,12 @@ def generate_text_thumbnail(source_path, dest_path, width=800, height=500):
     except Exception as e:
         logger.error(f"generate_text_thumbnail error: {e}")
         return
-def generate_thumbnail(file_path, thumbnail_dir):
+def generate_thumbnail(file_path):
     logger.info(f"Generating thumbnail for {file_path}")
     try:
         thumbnail_uuid = uuid.uuid4().hex
         ext = file_path.lower()
-        dest_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
+        dest_path = os.path.join(Config.THUMBNAIL_DIR, f"{thumbnail_uuid}.jpg")
 
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             generate_image_thumbnail(file_path, dest_path)
@@ -209,7 +206,7 @@ def generate_thumbnail(file_path, thumbnail_dir):
         else:
             return None  # unsupported
         
-        final_thumbnail_path = os.path.join(thumbnail_dir, f"{thumbnail_uuid}.jpg")
+        final_thumbnail_path = os.path.join(Config.THUMBNAIL_DIR, f"{thumbnail_uuid}.jpg")
         logger.info(f"Thumbnail created at {final_thumbnail_path}")
         
         return final_thumbnail_path

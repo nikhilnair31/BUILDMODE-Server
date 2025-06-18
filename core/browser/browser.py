@@ -129,7 +129,12 @@ def screenshot_url(url, path="screenshot.jpg", wait_seconds=3, headless=True):
 class BrowserManager:
     def __init__(self):
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(
+        self.browser = None  # Initialize browser in methods to handle restarts
+        self.lock = threading.Lock()
+        self.tab_queue = Queue(maxsize=MAX_TABS)
+
+    def _create_browser(self):
+        return self.playwright.chromium.launch(
             headless=True,
             proxy={
                 "server": Config.PROXY_SERVER,
@@ -137,8 +142,6 @@ class BrowserManager:
                 "password": Config.PROXY_PASSWORD,
             }
         )
-        self.lock = threading.Lock()
-        self.tab_queue = Queue(maxsize=MAX_TABS)
 
     def _create_context(self):
         return self.browser.new_context(
@@ -154,80 +157,93 @@ class BrowserManager:
         )
 
     def screenshot_url(self, url, path="screenshot.jpg", wait_seconds=3):
-        if self.tab_queue.full():
-            raise RuntimeError("Max number of tabs reached. Try again shortly.")
-
-        self.tab_queue.put(1)  # Reserve tab
-        try:
-            context = self._create_context()
-            page = context.new_page()
-
-            page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
-                window.chrome = { runtime: {} };
-                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                const hideStuff = () => {
-                    const selectors = [
-                        'div[role="dialog"]', '.popup', '.modal', '.overlay',
-                        '[data-testid="sheetDialog"]', '.fc-consent-root',
-                        '[id^="modal"]', '.ytp-popup', '.ytp-modal-dialog',
-                        '.RveJvd.snByac', '.Ax4B8.ZAGvjd',
-                        'div[style*="z-index"][style*="position: fixed"]'
-                    ];
-                    selectors.forEach(sel => {
-                        document.querySelectorAll(sel).forEach(el => el.remove());
-                    });
-                    document.querySelectorAll('*').forEach(el => {
-                        const style = getComputedStyle(el);
-                        if (style.zIndex > 1000 && style.position === 'fixed') {
-                            el.style.display = 'none';
-                        }
-                    });
-                };
-                setInterval(hideStuff, 1000);
-            """)
-
+        retries = 3  # Number of retry attempts
+        for _ in range(retries):
             try:
-                page.goto(url, wait_until="networkidle", timeout=30000)
+                if self.browser is None:
+                    self.browser = self._create_browser()
+
+                context = self._create_context()
+                page = context.new_page()
+
+                page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+                    window.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                    const hideStuff = () => {
+                        const selectors = [
+                            'div[role="dialog"]', '.popup', '.modal', '.overlay',
+                            '[data-testid="sheetDialog"]', '.fc-consent-root',
+                            '[id^="modal"]', '.ytp-popup', '.ytp-modal-dialog',
+                            '.RveJvd.snByac', '.Ax4B8.ZAGvjd',
+                            'div[style*="z-index"][style*="position: fixed"]'
+                        ];
+                        selectors.forEach(sel => {
+                            document.querySelectorAll(sel).forEach(el => el.remove());
+                        });
+                        document.querySelectorAll('*').forEach(el => {
+                            const style = getComputedStyle(el);
+                            if (style.zIndex > 1000 && style.position === 'fixed') {
+                                el.style.display = 'none';
+                            }
+                        });
+                    };
+                    setInterval(hideStuff, 1000);
+                """)
+
+                try:
+                    page.goto(url, wait_until="networkidle", timeout=30000)
+                except PlaywrightTimeoutError:
+                    logger.warning("Timeout during page.goto with 'networkidle'. Retrying with 'load'")
+                    try:
+                        page.goto(url, wait_until="load", timeout=30000)
+                    except PlaywrightTimeoutError as e:
+                        logger.error(f"Page.goto failed again with timeout: {e}")
+                        return False
+
+                time.sleep(wait_seconds)
+
+                # Try dismissing cookie modals
+                for selector in [
+                    'button:has-text("Accept")',
+                    'button:has-text("Accept All")',
+                    '.cookie-accept',
+                    '[aria-label="Accept cookies"]',
+                    '[id*="onetrust"] button:has-text("Accept")',
+                ]:
+                    try:
+                        page.locator(selector).click(timeout=1000)
+                        logger.info(f"Clicked cookie consent via: {selector}")
+                        break
+                    except:
+                        continue
+
+                page.screenshot(path=path)
+                logger.info(f"Screenshot saved to {path}")
+                return True
+
             except PlaywrightTimeoutError:
-                logger.warning("Timeout during page.goto with 'networkidle'. Retrying with 'load'")
-                try:
-                    page.goto(url, wait_until="load", timeout=30000)
-                except PlaywrightTimeoutError as e:
-                    logger.error(f"Page.goto failed again with timeout: {e}")
-                    return False
+                logger.warning("Timeout during page navigation. Retrying...")
+                continue  # Retry if there's a timeout
 
-            time.sleep(wait_seconds)
-
-            # Try dismissing cookie modals
-            for selector in [
-                'button:has-text("Accept")',
-                'button:has-text("Accept All")',
-                '.cookie-accept',
-                '[aria-label="Accept cookies"]',
-                '[id*="onetrust"] button:has-text("Accept")',
-            ]:
-                try:
-                    page.locator(selector).click(timeout=1000)
-                    logger.info(f"Clicked cookie consent via: {selector}")
-                    break
-                except:
-                    continue
-
-            page.screenshot(path=path)
-            logger.info(f"Screenshot saved to {path}")
-            return True
-        except Exception as e:
-            logger.error(f"Screenshot failed: {e}")
-            return False
-        finally:
-            try:
-                context.close()
             except Exception as e:
-                logger.warning(f"Context close failed: {e}")
-            self.tab_queue.get_nowait()
+                logger.error(f"Error occurred during screenshot: {e}")
+                if self.browser:
+                    self.browser.close()
+                    self.browser = None
+                continue  # Retry for other exceptions
 
+            finally:
+                try:
+                    if context:
+                        context.close()
+                except Exception as e:
+                    logger.warning(f"Context close failed: {e}")
+
+        logger.error("All screenshot attempts failed after retries.")
+        return False
+    
     def shutdown(self):
         self.browser.close()
         self.playwright.stop()

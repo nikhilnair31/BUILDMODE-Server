@@ -23,19 +23,29 @@ class ProcessingStatus(str):
     COMPLETED = "completed"
     FAILED = "failed"
 
+class StagingEntry(Base):
+    __tablename__ = 'staging'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer)
+    file_path = Column(String)
+    post_url = Column(String)
+    timestamp = Column(Integer)
+    source_type = Column(String)
+    status = Column(String, default=ProcessingStatus.PENDING, nullable=False)
+
 class DataEntry(Base):
     __tablename__ = 'data'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer)
-    thumbnail_path = Column(String)
     file_path = Column(String)
+    thumbnail_path = Column(String)
     post_url = Column(String)
+    timestamp = Column(Integer)
     tags = Column(String)
     tags_vector = Column(Vector(768))
     swatch_vector = Column(Vector(30))
-    status = Column(String, default=ProcessingStatus.PENDING, nullable=False)
-    timestamp = Column(Integer)
 
 class User(Base):
     __tablename__ = 'users'

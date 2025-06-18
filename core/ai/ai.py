@@ -14,15 +14,17 @@ logger = logging.getLogger(__name__)
 LLM_PROVIDER = "gemini"
 VEC_PROVIDER = "gemini"
 
-def call_llm_api(sysprompt, image_b64_list):
+def call_llm_api(sysprompt, text_or_images):
     print(f"\nLLM...")
 
     if LLM_PROVIDER == "gemini":
-        response_json = call_gemini(sysprompt, image_b64_list)
-        return response_json
+        if isinstance(text_or_images, list):
+            return call_gemini_with_images(sysprompt, text_or_images)
+        elif isinstance(text_or_images, str):
+            return call_gemini_with_text(sysprompt, text_or_images)
         
     return ""
-def call_gemini(sysprompt, image_b64_list):
+def call_gemini_with_images(sysprompt, image_b64_list):
     print(f"Calling Gemini...\n")
 
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -46,6 +48,37 @@ def call_gemini(sysprompt, image_b64_list):
     content_text = response.text
     
     return content_text
+def call_gemini_with_text(sysprompt, text):
+    print(f"Calling Gemini with text...\n")
+
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    MODEL_ID = "gemini-2.0-flash"
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    response_schema = genai.types.Schema(
+        type=genai.types.Type.OBJECT,
+        required=["urls"],
+        properties={
+            "urls": genai.types.Schema(
+                type=genai.types.Type.ARRAY,
+                items=genai.types.Schema(
+                    type=genai.types.Type.STRING
+                )
+            )
+        }
+    )
+    response = client.models.generate_content(
+        model=MODEL_ID,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            system_instruction=sysprompt,
+            temperature=1.0
+        ),
+        contents=[text]
+    )
+
+    return response.text
 
 def call_vec_api(query_text):
     print(f"Vec...")

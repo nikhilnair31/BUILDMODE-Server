@@ -4,7 +4,7 @@ import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from core.utils.config import Config
-from core.database.models import Base # Corrected import path
+from core.database.models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ def init_db():
         logger.info("Database initialized.")
 
 def get_db_session():
-    """Provides a new database session."""
     if Session is None:
         init_db()
     return Session()

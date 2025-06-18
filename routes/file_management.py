@@ -1,29 +1,20 @@
 # file_management.py
 
-import os
-import base64
-import time
-import uuid
-import zipfile
-import json
-import logging
-import tempfile
-import requests
-import traceback
+import os, time, uuid, zipfile, json, logging, tempfile, requests, traceback
+
 from io import BytesIO
-from flask import request, jsonify, send_file, send_from_directory, abort
-from werkzeug.utils import secure_filename
 from routes import file_management_bp
+from werkzeug.utils import secure_filename
+from flask import request, jsonify, send_file, send_from_directory, abort
+
+from core.utils.cache import clear_user_cache
 from core.database.database import get_db_session
-from core.database.models import DataEntry, User, ProcessingStatus
+from core.database.models import StagingEntry, DataEntry, User, ProcessingStatus
 from core.utils.middleware import limiter
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required, save_limit_required
-from core.utils.cache import clear_user_cache
 from core.utils.config import Config
-from core.content.images import extract_distinct_colors, generate_img_b64_list, compress_image, generate_thumbnail
-from core.browser.browser import screenshot_url
-from core.ai.ai import call_llm_api, call_vec_api
+from core.processing.background import process_entry_async
 
 logger = logging.getLogger(__name__)
 
@@ -31,26 +22,24 @@ logger = logging.getLogger(__name__)
 @token_required
 @save_limit_required
 def upload_image(current_user):
-    session = None
-    entry = None
-    temp_path = None
-    final_filepath = None
+    logger.info("\nReceived request to upload image\n")
     try:
-        logger.info("\nReceived request to upload image\n")
-        file = request.files.get('image')
-        if not file:
-            logger.error("No image file provided.")
-            return error_response("No image file provided.", 400)
-        logger.info(f"Received filename: {file.filename}")
-
+        # Check if user exists
         session = get_db_session()
         user = session.query(User).get(current_user.id)
         if not user:
             e = f"User ID {current_user.id} not found"
             logger.error(e)
             return error_response(e, 404)
+        
+        # Check if content exists
+        file = request.files.get('image')
+        if not file:
+            logger.error("No image file provided.")
+            return error_response("No image file provided.", 400)
+        logger.info(f"Received filename: {file.filename}")
 
-        # Save initial file to temp and then compress to final location
+        # Save file to temp
         file_uuid_token = uuid.uuid4().hex
         original_filename = secure_filename(file.filename)
         original_ext = os.path.splitext(original_filename)[1]
@@ -58,148 +47,186 @@ def upload_image(current_user):
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
         file.save(temp_path)
 
-        # 1. Save initial info with PENDING status
-        entry = DataEntry(
-            file_path=temp_path,
-            thumbnail_path=None, # Initially null
-            post_url="-",
-            tags=None, # Initially null
-            tags_vector=None, # Initially null
-            swatch_vector=None, # Initially null
-            timestamp=int(time.time()),
+        # Save initial info with PENDING status
+        entry = StagingEntry(
             user_id=user.id,
-            status=ProcessingStatus.PENDING # Set initial status
+            file_path=temp_path,
+            post_url="-",
+            timestamp=int(time.time()),
+            source_type='image',
+            status=ProcessingStatus.PENDING
         )
         session.add(entry)
-        session.commit() # Commit to persist the PENDING entry and get its ID
-        logger.info(f"DataEntry {entry.id} created with PENDING status.")
-
-        with open(temp_path, "rb") as f:
-            final_filepath = compress_image(f, Config.UPLOAD_DIR)
-
-        thumbnail_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
-
-        # 2. Set status to PROCESSING
-        entry.file_path = final_filepath
-        entry.thumbnail_path = thumbnail_path
-        entry.status = ProcessingStatus.PROCESSING # Set final status
         session.commit()
-        logger.info(f"DataEntry {entry.id} status updated to PROCESSING.")
+        logger.info(f"StagingEntry {entry.id} created with PENDING status.")
+        
+        # Kick off async processing
+        process_entry_async(entry.id)
 
-        image_base64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
-        content = call_llm_api(
-            sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64_list=image_base64
-        )
-        embedding = call_vec_api(content)
-        swatch_vector = extract_distinct_colors(final_filepath)
-
-        # 3. Update existing record with results and COMPLETED status
-        entry.tags = content
-        entry.tags_vector = embedding
-        entry.swatch_vector = swatch_vector
-        entry.status = ProcessingStatus.COMPLETED # Set final status
-        session.commit()
-        logger.info(f"DataEntry {entry.id} updated with COMPLETED status and processed data.")
-
+        # Clearing cache
         clear_user_cache(current_user.id)
-        return jsonify({'status': 'success', 'message': 'Uploaded and processed successfully'}), 200
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Image upload accepted and is being processed',
+            'entry_id': entry.id
+        }), 200
     
     except Exception as e:
         e = f"Error processing image upload: {e}"
         logger.error(e)
         traceback.print_exc()
-        if session and entry:
+        if session:
             session.rollback()
-            try:
-                failed_entry = session.query(DataEntry).get(entry.id)
-                if failed_entry:
-                    failed_entry.status = ProcessingStatus.FAILED
-                    session.commit()
-                    logger.info(f"DataEntry {failed_entry.id} status updated to FAILED.")
-            except Exception as re_e:
-                logger.error(f"Failed to update DataEntry {entry.id} to FAILED status: {re_e}")
-
         return error_response(e, 500)
+    
     finally:
         if session:
             session.close()
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
 
 @file_management_bp.route('/upload/imageurl', methods=['POST'])
-# @limiter.limit("1 per second")
 @token_required
 @save_limit_required
 def upload_imageurl(current_user):
+    logger.info("\nReceived request to upload image from URL\n")
     try:
-        logger.info("\nReceived request to upload image from URL\n")
-        image_url = request.form.get("image_url")
-        post_url = request.form.get("post_url", "-")
-
-        if not image_url:
-            e = f"No image URL provided."
-            logger.error(e)
-            return error_response(e, 400)
-
+        # Check if user exists
         session = get_db_session()
         user = session.query(User).get(current_user.id)
         if not user:
             e = f"User ID {current_user.id} not found"
             logger.error(e)
             return error_response(e, 404)
-
-        logger.info(f"Downloading image from: {image_url[:25]}")
+        
+        # Check if content exists
+        image_url = request.form.get("image_url")
+        post_url = request.form.get("post_url", "-")
+        if not image_url:
+            e = f"No image URL provided."
+            logger.error(e)
+            return error_response(e, 400)
+        logger.info(f"Received image URL: {image_url[:10]}")
+        
+        # Fetch image
         response = requests.get(image_url, stream=True)
         if response.status_code != 200:
             raise Exception(f"Failed to fetch image from URL: {image_url}")
 
+        # Check format
         url_ext = os.path.splitext(image_url)[1]
         if url_ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
             raise Exception(f"Unsupported image format: {url_ext}. Only PNG, JPG, JPEG, and WEBP are allowed.")
         
+        # Save file to temp
         file_uuid_token = uuid.uuid4().hex
         temp_filename = secure_filename(f"{file_uuid_token}.jpg")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
         with open(temp_path, "wb") as out_file:
             out_file.write(response.content)
-
-        with open(temp_path, "rb") as f:
-            final_filepath = compress_image(f, Config.UPLOAD_DIR)
         
-        thumbnail_rel_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
-        IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
-
-        content = call_llm_api(
-            sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64_list=IMAGE_BASE64
-        )
-        embedding = call_vec_api(content)
-        swatch_vector = extract_distinct_colors(final_filepath)
-
-        entry = DataEntry(
-            file_path=final_filepath, 
-            thumbnail_path=thumbnail_rel_path,
-            post_url=post_url,
-            tags=content, 
-            tags_vector=embedding,
-            swatch_vector=swatch_vector,
-            timestamp=int(time.time()),
+        # Save initial info with PENDING status
+        entry = StagingEntry(
             user_id=user.id,
+            file_path=temp_path,
+            post_url=post_url,
+            timestamp=int(time.time()),
+            source_type='image',
+            status=ProcessingStatus.PENDING
         )
         session.add(entry)
         session.commit()
+        logger.info(f"StagingEntry {entry.id} created with PENDING status.")
+        
+        # Kick off async processing
+        process_entry_async(entry.id)
 
+        # Clearing cache
         clear_user_cache(current_user.id)
-        return jsonify({'status': 'success', 'message': 'Image from URL processed successfully'}), 200
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Image URL accepted and is being processed',
+            'entry_id': entry.id
+        }), 200
     
     except Exception as e:
         e = f"Error processing image URL upload: {e}"
         logger.error(e)
         traceback.print_exc()
+        if session:
+            session.rollback()
         return error_response(e, 500)
+    
     finally:
-        session.close()
+        if session:
+            session.close()
+
+@file_management_bp.route('/upload/pdf', methods=['POST'])
+@token_required
+@save_limit_required
+def upload_pdf(current_user):
+    logger.info("\nReceived request to upload PDF\n")
+    try:
+        # Check if user exists
+        session = get_db_session()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+        
+        # Check if content exists
+        file = request.files.get("pdf")
+        if not file:
+            e = "No PDF file uploaded"
+            logger.error(e)
+            return error_response(e, 400)
+        logger.info(f"Received filename: {file.filename}")
+
+        # Save file to temp
+        file_uuid_token = uuid.uuid4().hex
+        original_filename = secure_filename(file.filename)
+        original_ext = os.path.splitext(original_filename)[1]
+        temp_filename = f"{file_uuid_token}{original_ext}"
+        temp_path = os.path.join(Config.UPLOAD_DIR, temp_filename)
+        file.save(temp_path)
+
+        # Save initial info with PENDING status
+        entry = StagingEntry(
+            user_id=user.id,
+            file_path=temp_path,
+            post_url="-",
+            timestamp=int(time.time()),
+            source_type='pdf',
+            status=ProcessingStatus.PENDING
+        )
+        session.add(entry)
+        session.commit()
+        logger.info(f"StagingEntry {entry.id} created with PENDING status.")
+
+        # Kick off async processing
+        process_entry_async(entry.id)
+
+        # Clearing cache
+        clear_user_cache(current_user.id)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'PDF accepted and is being processed',
+            'entry_id': entry.id
+        }), 200
+
+    except Exception as e:
+        e = f"Error processing PDF upload: {e}"
+        logger.error(e)
+        traceback.print_exc()
+        if session:
+            session.rollback()
+        return error_response(e, 500)
+    
+    finally:
+        if session:
+            session.close()
 
 @file_management_bp.route('/upload/text', methods=['POST'])
 # @limiter.limit("1 per second")
@@ -208,164 +235,233 @@ def upload_imageurl(current_user):
 def upload_text(current_user):
     logger.info("\nReceived request to upload text\n")
     try:
-        selected_text = request.form['text']
+        # Check if user exists
         session = get_db_session()
         user = session.query(User).get(current_user.id)
         if not user:
             e = f"User ID {current_user.id} not found"
             logger.error(e)
             return error_response(e, 404)
-        logger.info(f"Received from {user.username} a text: {selected_text}\n")
         
+        # Check if content exists
+        selected_text = request.form['text']
+        if not selected_text:
+            e = f"No text provided."
+            logger.error(e)
+            return error_response(e, 400)
+        logger.info(f"Received text: {selected_text[:10]}")
+        
+        # Save file to temp
         file_uuid_token = uuid.uuid4().hex
-        final_filename = secure_filename(f"{file_uuid_token}.txt")
-        final_filepath = os.path.join(Config.UPLOAD_DIR, final_filename)
-        with open(final_filepath, "w") as f:
-            f.write(selected_text)
-        logger.info(f"Saved text to: {final_filepath}\n")
-    
-        thumbnail_rel_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
-        embedding = call_vec_api(selected_text)
-
-        entry = DataEntry(
-            file_path=final_filepath, 
-            thumbnail_path=thumbnail_rel_path,
-            post_url="-",
-            tags=selected_text, 
-            tags_vector=embedding,
-            swatch_vector=None,
-            timestamp=int(time.time()),
+        temp_filename = secure_filename(f"{file_uuid_token}.txt")
+        temp_path = os.path.join(Config.UPLOAD_DIR, temp_filename)
+        with open(temp_path, "w", encoding="utf-8") as out_file:
+            out_file.write(selected_text)
+        
+        # Save initial info with PENDING status
+        entry = StagingEntry(
             user_id=user.id,
+            file_path=temp_path,
+            post_url="-",
+            timestamp=int(time.time()),
+            source_type='text',
+            status=ProcessingStatus.PENDING
         )
         session.add(entry)
         session.commit()
+        logger.info(f"StagingEntry {entry.id} created with PENDING status.")
 
+        # Kick off async processing
+        process_entry_async(entry.id)
+
+        # Clearing cache
         clear_user_cache(current_user.id)
-        return jsonify({'status': 'success', 'message': 'Text processed successfully'}), 200
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Text accepted and is being processed',
+            'entry_id': entry.id
+        }), 200
 
     except Exception as e:
         e = f"Error processing text upload: {e}"
         logger.error(e)
         traceback.print_exc()
+        if session:
+            session.rollback()
         return error_response(e, 500)
+    
     finally:
-        session.close()
+        if session:
+            session.close()
 
 @file_management_bp.route('/upload/url', methods=['POST'])
 # @limiter.limit("1 per second")
 @token_required
 @save_limit_required
 def upload_url(current_user):
+    logger.info("\nReceived request to upload URL\n")
     try:
-        url = request.form['url']
+        # Check if user exists
         session = get_db_session()
         user = session.query(User).get(current_user.id)
         if not user:
             e = f"User ID {current_user.id} not found"
             logger.error(e)
             return error_response(e, 404)
-        logger.info(f"Received from {user.username} a url: {url[:25]}\n")
         
+        # Check if content exists
+        url = request.form['url']
+        if not url:
+            logger.error("No URL provided.")
+            return error_response("No URL provided.", 400)
+        logger.info(f"Received URL: {url[:10]}")
+        
+        # Save file to temp
         file_uuid_token = uuid.uuid4().hex
-        temp_filename = secure_filename(f"{file_uuid_token}.jpg")
+        temp_filename = secure_filename(f"{file_uuid_token}.txt")
         temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
-        try:
-            screenshot_url(url, path=temp_path, wait_seconds=2, headless=True)
-        except RuntimeError as e:
-            e = f'Failed to screenshot the URL: {e}'
-            logger.error(e)
-            return error_response(e, 400)
+        with open(temp_path, "w", encoding="utf-8") as out_file:
+            out_file.write(url)
         
-        with open(temp_path, "rb") as f:
-            final_filepath = compress_image(f, Config.UPLOAD_DIR)
-    
-        thumbnail_rel_path = generate_thumbnail(final_filepath, Config.THUMBNAIL_DIR)
-        IMAGE_BASE64 = [base64.b64encode(open(final_filepath, "rb").read()).decode("utf-8")]
-
-        content = call_llm_api(
-            sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64_list=IMAGE_BASE64
-        )
-        embedding = call_vec_api(content)
-        swatch_vector = extract_distinct_colors(final_filepath)
-
-        entry = DataEntry(
-            file_path=final_filepath, 
-            thumbnail_path=thumbnail_rel_path,
-            post_url=url,
-            tags=content, 
-            tags_vector=embedding,
-            swatch_vector=swatch_vector,
-            timestamp=int(time.time()),
+        # Save initial info with PENDING status
+        entry = StagingEntry(
             user_id=user.id,
+            file_path=temp_path,
+            post_url="-",
+            timestamp=int(time.time()),
+            source_type='url',
+            status=ProcessingStatus.PENDING
         )
         session.add(entry)
         session.commit()
+        logger.info(f"StagingEntry {entry.id} created with PENDING status.")
 
+        # Kick off async processing
+        process_entry_async(entry.id)
+
+        # Clearing cache
         clear_user_cache(current_user.id)
-        return jsonify({'status': 'success', 'message': 'URL processed successfully'}), 200
-    
+
+        return jsonify({
+            'status': 'success',
+            'message': 'URL accepted and is being processed',
+            'entry_id': entry.id
+        }), 200
+
     except Exception as e:
-        e = f"Error processing text upload: {e}"
+        e = f"Error processing URL upload: {e}"
         logger.error(e)
         traceback.print_exc()
+        if session:
+            session.rollback()
         return error_response(e, 500)
+    
     finally:
-        session.close()
+        if session:
+            session.close()
 
-@file_management_bp.route('/upload/pdf', methods=['POST'])
+@file_management_bp.route('/upload/html', methods=['POST'])
 # @limiter.limit("1 per second")
 @token_required
 @save_limit_required
-def upload_pdf(current_user):
-    file = request.files.get("pdf")
-    if not file:
-        e = "No PDF file uploaded"
-        logger.error(e)
-        return error_response(e, 400)
-
+def upload_html(current_user):
+    logger.info("\nReceived request to index site\n")
     try:
-        timestamped_filename = f"{file.filename}_{int(time.time())}.pdf"
-        save_path = os.path.join(Config.UPLOAD_DIR, timestamped_filename)
-        file.save(save_path)
-        
-        thumbnail_rel_path = generate_thumbnail(save_path, Config.THUMBNAIL_DIR)
-        image_b64_list = generate_img_b64_list(save_path)
-        if not image_b64_list:
-            e = "No pages found in PDF"
-            logger.error(e)
-            return error_response(e, 400)
-
-        content = call_llm_api(
-            sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
-            image_b64_list=image_b64_list
-        )
-        embedding = call_vec_api(content)
-
+        # Check if user exists
         session = get_db_session()
-        entry = DataEntry(
-            file_path=save_path,
-            thumbnail_path=thumbnail_rel_path,
-            post_url="-",
-            tags=content,
-            tags_vector=embedding,
-            swatch_vector=None,
-            timestamp=int(time.time()),
-            user_id=current_user.id,
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+        
+        # Check fields
+        html_file = request.files.get('html')
+        html_content = html_file.read().decode("utf-8")
+        url = request.form.get('url')
+        timestamp_raw = request.form.get('timestamp')
+        try:
+            timestamp = int(int(timestamp_raw) / 1000)
+        except:
+            timestamp = int(time.time())
+        if not html_file or not url:
+            return error_response("Missing required fields: html or url", 400)
+
+        # Call LLM to extract post URLs
+        from core.ai.ai import call_llm_api  # inline to ensure context
+        post_urls_str = call_llm_api(
+            sysprompt=Config.HTML_POST_EXTRACTION_SYSTEM_PROMPT,
+            text_or_images=html_content
         )
-        session.add(entry)
+        logger.info(f"LLM extracted: {post_urls_str[:20]}...")
+
+        # Try parsing list
+        try:
+            parsed = json.loads(post_urls_str)
+            post_urls = parsed.get("urls", [])
+            logger.info(f"len post_urls\n{len(post_urls)}")
+            logger.info(f"post_urls\n{post_urls[:2]}")
+        except Exception as e:
+            logger.error(f"Failed to parse LLM response: {e}")
+            return error_response("LLM response invalid or malformed", 500)
+
+        if not isinstance(post_urls, list):
+            logger.error("LLM response is not a list.")
+            return error_response("LLM response must be a JSON list of URLs", 500)
+
+        # Create StagingEntries for each URL
+        staging_entries = []
+        for post_url in post_urls:
+            logger.info(f"post_url\n{post_url}")
+            if not isinstance(post_url, str) or not post_url.startswith("http"):
+                continue
+            
+            # Save file to temp
+            file_uuid_token = uuid.uuid4().hex
+            temp_filename = secure_filename(f"{file_uuid_token}.txt")
+            temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
+            with open(temp_path, "w", encoding="utf-8") as out_file:
+                out_file.write(post_url)
+
+            entry = StagingEntry(
+                user_id=user.id,
+                file_path=temp_path,
+                post_url="-",
+                timestamp=int(timestamp),
+                source_type='url',
+                status=ProcessingStatus.PENDING
+            )
+            session.add(entry)
+            staging_entries.append(entry)
+
         session.commit()
 
+        # Trigger processing
+        logger.info(f"len staging_entries\n{len(staging_entries)}")
+        for entry in staging_entries:
+            logger.info(f"entry.id\n{entry.id}")
+            process_entry_async(entry.id)
+
         clear_user_cache(current_user.id)
-        return jsonify({"status": "success", "message": "PDF uploaded and processed"})
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Extracted and queued {len(staging_entries)} URLs',
+            'count': len(staging_entries),
+        }), 200
 
     except Exception as e:
-        e = f"Error processing PDF upload: {e}"
+        e = f"Error processing HTML upload: {e}"
         logger.error(e)
         traceback.print_exc()
+        if session:
+            session.rollback()
         return error_response(e, 500)
+    
     finally:
-        session.close()
+        if session:
+            session.close()
 
 @file_management_bp.route('/delete/file', methods=['POST'])
 # @limiter.limit("1 per second")

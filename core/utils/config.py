@@ -24,6 +24,9 @@ class Config:
         keyword1, keyword2, ...
         </tags>
     """
+    HTML_POST_EXTRACTION_SYSTEM_PROMPT =  """
+        Extract a bullet list of relevant posts links from this website's HTML. Ignore indirect links to the site itself or media links. Get href links in a tags. Keep or build the full relevant URL. 
+    """
     ALLOWED_USER_AGENTS = [
         "YourAndroidApp/1.0",
         "python-requests",
