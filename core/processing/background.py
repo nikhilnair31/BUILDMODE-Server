@@ -36,10 +36,14 @@ def _process_entry(entry_id):
 
         file_name = os.path.basename(original_path)
         final_filepath = os.path.join(Config.UPLOAD_DIR, file_name)
+        logger.info(f"original_path: {original_path}\nfile_name: {file_name}\nfinal_filepath: {final_filepath}\n")
 
         # General case: copy file to upload directory
-        shutil.copy(original_path, final_filepath)
-        logger.info(f"Copied file to upload dir: {final_filepath}")
+        if os.path.abspath(original_path) != os.path.abspath(final_filepath):
+            shutil.copy(original_path, final_filepath)
+            logger.info(f"Copied file to upload dir: {final_filepath}")
+        else:
+            logger.info("Source and destination paths are the same; skipping copy.")
 
         if source_type in ['image', 'imageurl']:
             with open(final_filepath, "rb") as f:

@@ -109,14 +109,10 @@ def upload_imageurl(current_user):
         
         # Fetch image
         response = requests.get(image_url, stream=True)
+        logger.info(f"response: {response}")
         if response.status_code != 200:
             raise Exception(f"Failed to fetch image from URL: {image_url}")
 
-        # Check format
-        url_ext = os.path.splitext(image_url)[1]
-        if url_ext.lower() not in [".png", ".jpg", ".jpeg", ".webp"]:
-            raise Exception(f"Unsupported image format: {url_ext}. Only PNG, JPG, JPEG, and WEBP are allowed.")
-        
         # Save file to temp
         file_uuid_token = uuid.uuid4().hex
         temp_filename = secure_filename(f"{file_uuid_token}.jpg")
