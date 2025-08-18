@@ -104,7 +104,7 @@ def login():
         refresh_token = jwt.encode(
             {
                 'user_id': user.id,
-                'exp': datetime.datetime.utcnow() + datetime.timedelta(days=30)
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(days=60)
             }, 
             Config.JWT_SECRET_KEY, 
             algorithm='HS256'

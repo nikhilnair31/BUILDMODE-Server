@@ -29,7 +29,6 @@ def _process_entry(entry_id):
         source_type = staging_entry.source_type
         original_path = staging_entry.file_path
         user_id = staging_entry.user_id
-        post_url = staging_entry.post_url
 
         staging_entry.status = ProcessingStatus.PROCESSING
         session.commit()
@@ -60,60 +59,6 @@ def _process_entry(entry_id):
             swatch_vector = extract_distinct_colors(new_filepath)
             thumbnail_path = generate_thumbnail(new_filepath)
             final_filepath = new_filepath
-            
-        elif source_type == 'pdf':
-            image_base64 = generate_img_b64_list(original_path)
-            tags_list_str = call_llm_api(
-                sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT,
-                text_or_images=image_base64
-            )
-            tags_vector = call_vec_api(tags_list_str)
-            swatch_vector = None
-            thumbnail_path = generate_thumbnail(original_path)
-            final_filepath = original_path
-        
-        elif source_type == 'text':
-            with open(original_path, "r") as f:
-                selected_text = f.read()
-            
-            # Processing
-            tags_list_str = selected_text
-            tags_vector = call_vec_api(selected_text)
-            swatch_vector = None
-            thumbnail_path = generate_thumbnail(original_path)
-            final_filepath = original_path
-        
-        elif source_type == 'url':
-            with open(original_path, "r") as f:
-                url = f.read().strip()
-
-            name = os.path.splitext(os.path.basename(original_path))[0]
-            screenshot_temp = os.path.join(tempfile.gettempdir(), f"{name}.jpg")
-
-            # Create a thread to run screenshot_url
-            screenshot_success = [False]
-
-            def run_screenshot():
-                screenshot_success[0] = screenshot_url(url, path=screenshot_temp)
-
-            t = threading.Thread(target=run_screenshot)
-            t.start()
-            t.join()
-
-            if not screenshot_success[0] or not os.path.exists(screenshot_temp):
-                raise FileNotFoundError(f"Screenshot failed or file not found: {screenshot_temp}")
-
-            with open(screenshot_temp, "rb") as f:
-                final_filepath = compress_image(f)
-
-            image_base64 = [encode_image_to_base64(final_filepath)]
-            tags_list_str = call_llm_api(
-                sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
-                text_or_images=image_base64
-            )
-            tags_vector = call_vec_api(tags_list_str)
-            swatch_vector = extract_distinct_colors(final_filepath)
-            thumbnail_path = generate_thumbnail(final_filepath)
 
         else:
             raise Exception(f"Unsupported source_type: {source_type}")
@@ -122,7 +67,6 @@ def _process_entry(entry_id):
             user_id=user_id,
             file_path=final_filepath,
             thumbnail_path=thumbnail_path,
-            post_url=post_url,
             tags=tags_list_str,
             tags_vector=tags_vector,
             swatch_vector=swatch_vector,

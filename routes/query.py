@@ -48,7 +48,7 @@ def get_similar(current_user, filename):
         query_vec = entry.tags_vector.tolist()
 
         final_sql = f"""
-            SELECT file_path, thumbnail_path, post_url, tags_vector <=> '{query_vec}' AS similarity
+            SELECT file_path, thumbnail_path, tags_vector <=> '{query_vec}' AS similarity
             FROM data
             WHERE user_id = {user_id} AND file_path != '{entry.file_path}'
             ORDER BY similarity ASC
@@ -63,8 +63,7 @@ def get_similar(current_user, filename):
             "results": [
                 {
                     "file_name": os.path.basename(r[0]),
-                    "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
-                    "post_url": r[2]
+                    "thumbnail_name": os.path.basename(r[1]) if r[1] else None
                 } for r in results
             ]
         }), 200
@@ -113,7 +112,7 @@ def query(current_user):
     cleaned_query = clean_text_of_color_and_time(query_text)
     query_vector = cached_call_vec_api(cleaned_query) if cleaned_query else None
 
-    select_fields = ["file_path", "thumbnail_path", "post_url"]
+    select_fields = ["file_path", "thumbnail_path"]
     where_clauses = [f"user_id = '{userid}'"]
     order_by_clauses = []
 
@@ -147,8 +146,7 @@ def query(current_user):
         "results": [
             {
                 "file_name": os.path.basename(r[0]),
-                "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
-                "post_url": r[2]
+                "thumbnail_name": os.path.basename(r[1]) if r[1] else None
             }
             for r in result
         ]
@@ -183,7 +181,7 @@ def check(current_user):
     cleaned_query = clean_text_of_color_and_time(query_text)
     query_vector = cached_call_vec_api(cleaned_query) if cleaned_query else None
 
-    select_fields = ["file_path", "post_url", "tags", "timestamp"]
+    select_fields = ["file_path", "tags", "timestamp"]
     where_clauses = [f"user_id = '{user.id}'"]
     order_by_clauses = []
 
