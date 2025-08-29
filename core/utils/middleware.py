@@ -1,3 +1,5 @@
+# middleware.py
+
 import logging
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -8,7 +10,6 @@ from core.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Make limiter global
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["100 per day", "30 per hour"]

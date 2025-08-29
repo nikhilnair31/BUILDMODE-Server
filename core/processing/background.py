@@ -1,9 +1,8 @@
 # core/processing/background.py
 
-import time, os, shutil, logging, tempfile, threading, base64, traceback
+import time, os, shutil, logging, base64, traceback
 from core.utils.config import Config
 from concurrent.futures import ThreadPoolExecutor
-from core.browser.browser import screenshot_url
 from core.database.database import get_db_session
 from core.database.models import StagingEntry, DataEntry, ProcessingStatus
 from core.content.images import compress_image, generate_thumbnail, extract_distinct_colors, generate_img_b64_list
@@ -53,7 +52,7 @@ def _process_entry(entry_id):
             image_base64 = [encode_image_to_base64(new_filepath)]
             tags_list_str = call_llm_api(
                 sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
-                text_or_images=image_base64
+                image_list=image_base64
             )
             tags_vector = call_vec_api(tags_list_str)
             swatch_vector = extract_distinct_colors(new_filepath)

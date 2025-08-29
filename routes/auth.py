@@ -7,7 +7,7 @@ import logging
 from flask import request, jsonify
 from routes import auth_bp
 from core.database.database import get_db_session
-from core.database.models import User
+from core.database.models import User, StagingEntry, DataEntry
 from core.utils.logs import error_response
 from core.utils.config import Config
 from core.utils.decoraters import token_required
@@ -117,5 +117,39 @@ def login():
                 'refresh_token': refresh_token
             }
         ), 200
+    finally:
+        session.close()
+
+@auth_bp.route('/account_delete', methods=['DELETE'])
+def account_delete(current_user):
+    logger.info(f"\nDeleting account for: {current_user.id}\n")
+    
+    session = get_db_session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
+    
+    try:
+        staging_deleted = session.query(StagingEntry).filter_by(user_id=user.id).delete()
+        data_deleted = session.query(DataEntry).filter_by(user_id=user.id).delete()
+        session.delete(user)
+
+        session.commit()
+
+        logger.info(
+            f"Deleted User {user.id}, "
+            f"{staging_deleted} staging entries, "
+            f"{data_deleted} data entries."
+        )
+
+        return {"message": "Account deleted successfully."}, 200
+
+    except Exception as e:
+        logger.error(f"Error deleting account {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to delete account", 500)
+    
     finally:
         session.close()

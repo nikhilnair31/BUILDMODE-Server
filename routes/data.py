@@ -3,7 +3,7 @@
 import os, time, uuid, zipfile, json, logging, tempfile, requests, traceback
 
 from io import BytesIO
-from routes import file_management_bp
+from routes import data_bp
 from werkzeug.utils import secure_filename
 from flask import request, jsonify, send_file, send_from_directory, abort
 
@@ -15,10 +15,11 @@ from core.utils.logs import error_response
 from core.utils.decoraters import token_required, save_limit_required
 from core.utils.config import Config
 from core.processing.background import process_entry_async
+from core.notifications.emails import send_email_with_zip
 
 logger = logging.getLogger(__name__)
 
-@file_management_bp.route('/upload/image', methods=['POST'])
+@data_bp.route('/upload/image', methods=['POST'])
 @token_required
 @save_limit_required
 def upload_image(current_user):
@@ -83,7 +84,7 @@ def upload_image(current_user):
         if session:
             session.close()
 
-@file_management_bp.route('/upload/imageurl', methods=['POST'])
+@data_bp.route('/upload/imageurl', methods=['POST'])
 @token_required
 @save_limit_required
 def upload_imageurl(current_user):
@@ -155,7 +156,7 @@ def upload_imageurl(current_user):
         if session:
             session.close()
 
-@file_management_bp.route('/delete/file', methods=['POST'])
+@data_bp.route('/delete/file', methods=['POST'])
 # @limiter.limit("1 per second")
 @token_required
 def delete_file(current_user):
@@ -202,7 +203,7 @@ def delete_file(current_user):
     finally:
         session.close()
 
-@file_management_bp.route('/get_file/<filename>')
+@data_bp.route('/get_file/<filename>')
 # @limiter.limit("5 per second;30 per minute")
 @token_required
 def get_file(current_user, filename):
@@ -219,7 +220,7 @@ def get_file(current_user, filename):
 
     return send_from_directory(Config.UPLOAD_DIR, filename)
 
-@file_management_bp.route('/get_thumbnail/<thumbnailname>')
+@data_bp.route('/get_thumbnail/<thumbnailname>')
 @limiter.limit("25 per second")
 @token_required
 def get_thumbnail(current_user, thumbnailname):
@@ -237,18 +238,20 @@ def get_thumbnail(current_user, thumbnailname):
 
     return send_from_directory(Config.THUMBNAIL_DIR, thumbnailname)
 
-@file_management_bp.route('/bulk_download_all', methods=['GET'])
+@data_bp.route('/bulk_download_all', methods=['GET'])
 # @limiter.limit("1 per second")
 @token_required
 def bulk_download_all(current_user):
+    logger.info(f"\nBulk download for: {current_user.id}\n")
+    
     session = get_db_session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
+    
     try:
-        user = session.query(User).get(current_user.id)
-        if not user:
-            e = f"User ID {current_user.id} not found"
-            logger.error(e)
-            return error_response(e, 404)
-
         user_files = session.query(DataEntry).filter(DataEntry.user_id == user.id).all()
         logger.info(f"Found {len(user_files)} files for user {user.username}\n")
 
@@ -276,11 +279,25 @@ def bulk_download_all(current_user):
                     zf.write(path, arcname=f'files/{arcname}') # Put files in a 'files' subfolder
 
         memory_file.seek(0)
-        return send_file(memory_file, download_name="FORGOR_backup.zip", as_attachment=True)
+
+        # Send as email attachment
+        sent = send_email_with_zip(
+            user_email=user.email,
+            subject="Your FORGOR Backup",
+            body="Attached is your full FORGOR backup as requested.",
+            zip_bytes=memory_file
+        )
+
+        if sent:
+            return jsonify({"message": "Backup sent to your email."}), 200
+        else:
+            return error_response("Failed to send backup email", 500)
+    
     except Exception as e:
         e = f"Error bulk downloading files: {e}"
         logger.error(e)
         traceback.print_exc()
         return error_response(e, 500)
+    
     finally:
         session.close()
