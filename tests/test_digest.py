@@ -109,7 +109,7 @@ def generate_digest(user_id: int, period="weekly"):
         pct_change = (now_cnt - prev_cnt) / prev_cnt * 100.0
 
     # ---------------- LLM SYNTHESIS ----------------
-    sysprompt = f"""
+    sys_prompt = f"""
     You are generating a digest summary of a user's saved content.
     Focus on being concise, thematic, and easy to read.
 
@@ -129,7 +129,7 @@ def generate_digest(user_id: int, period="weekly"):
 
     # Concatenate this period’s tags as context
     all_tags_text = "\n".join([r.tags or "" for r in now_rows])
-    llm_output = call_llm_api(sysprompt, all_tags_text)
+    llm_output = call_llm_api(sys_prompt, all_tags_text)
     llm_digest = json.loads(llm_output)["urls"][0]
 
     # ---- HTML ----

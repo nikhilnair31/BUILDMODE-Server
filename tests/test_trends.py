@@ -138,14 +138,14 @@ def build_trends_html(user_id: int, period="weekly", include_global=True) -> str
 
     # Optional LLM narrative
     try:
-        sysprompt = ("Summarize the user's personal and global tag trends in under 120 words. "
+        sys_prompt = ("Summarize the user's personal and global tag trends in under 120 words. "
                      "Be concrete and friendly. Mention overlaps between global spikes and the user's history if any.")
         ctx = (f"Personal top: {per['now_top']}\n"
                f"Personal spikes: {per['spikes']}\n"
                f"Global top: {glob['global_top'] if glob else []}\n"
                f"Global spikes: {glob['spikes'] if glob else []}\n"
                f"Overlap: {glob['relates_to_user'] if glob else []}")
-        ai_summary = call_llm_api(sysprompt, ctx)
+        ai_summary = call_llm_api(sys_prompt, ctx)
     except Exception as e:
         ai_summary = f"(AI summary unavailable: {e})"
 

@@ -142,58 +142,6 @@ def generate_image_thumbnail(source_path, dest_path, size=(300, 300)):
     with Image.open(source_path) as img:
         img.thumbnail(size)
         img.save(dest_path, "JPEG")
-def generate_pdf_thumbnail(source_path, dest_path):
-    images = convert_from_path(source_path, first_page=1, last_page=1, size=(300, 300))
-    images[0].save(dest_path, "JPEG")
-def generate_text_thumbnail(source_path, dest_path, width=800, height=500):
-    try:
-        # Font settings
-        font_path = 'assets/venus_cormier.otf'
-        font_size = 24
-        padding = 20
-        try:
-            font = ImageFont.truetype(font_path, font_size)
-        except IOError:
-            font = ImageFont.truetype("arial.ttf", font_size)
-
-        # Read and prepare text
-        with open(source_path, 'r', encoding='utf-8') as f:
-            text = f.read()
-
-        words = text.split()
-        lines = []
-        line = ""
-
-        # Dummy draw to measure text
-        dummy_img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(dummy_img)
-
-        for word in words:
-            test_line = line + " " + word if line else word
-            if draw.textlength(test_line, font=font) < (width - 2 * padding):
-                line = test_line
-            else:
-                lines.append(line)
-                line = word
-        if line:
-            lines.append(line)
-
-        # Calculate image height dynamically
-        line_height = font_size + 10
-        img_height = padding * 2 + len(lines) * line_height
-
-        image = Image.new("RGB", (width, img_height), "white")
-        draw = ImageDraw.Draw(image)
-
-        y = padding
-        for line in lines:
-            draw.text((padding, y), line, font=font, fill="black")
-            y += line_height
-
-        image.save(dest_path)
-    except Exception as e:
-        logger.error(f"generate_text_thumbnail error: {e}")
-        return
 def generate_thumbnail(file_path):
     logger.info(f"Generating thumbnail for {file_path}")
     try:
@@ -203,10 +151,6 @@ def generate_thumbnail(file_path):
 
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             generate_image_thumbnail(file_path, dest_path)
-        elif ext.endswith('.pdf'):
-            generate_pdf_thumbnail(file_path, dest_path)
-        elif ext.endswith('.txt'):
-            generate_text_thumbnail(file_path, dest_path)
         else:
             return None  # unsupported
         

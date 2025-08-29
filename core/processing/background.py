@@ -51,7 +51,7 @@ def _process_entry(entry_id):
 
             image_base64 = [encode_image_to_base64(new_filepath)]
             tags_list_str = call_llm_api(
-                sysprompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
+                sys_prompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
                 image_list=image_base64
             )
             tags_vector = call_vec_api(tags_list_str)
