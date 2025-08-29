@@ -7,7 +7,8 @@ import logging
 from flask import request, jsonify
 from routes import auth_bp
 from core.utils.config import Config
-from core.database.models import User, StagingEntry, DataEntry
+from core.utils.middleware import limiter
+from core.database.models import Frequency, User, StagingEntry, DataEntry
 from core.database.database import get_db_session
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required
@@ -118,6 +119,47 @@ def login():
                 'refresh_token': refresh_token
             }
         ), 200
+    finally:
+        session.close()
+
+@auth_bp.route('/digest_frequency', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def digest_frequency(current_user):
+    logger.info(f"Updating digest frequency for: {current_user.id}")
+
+    session = get_db_session()
+    try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        # Expect JSON body like: {"frequency": "daily"} or {"frequency": "weekly"}
+        data = request.get_json()
+        if not data or "frequency" not in data:
+            return error_response("Missing 'frequency' field", 400)
+
+        freq_name = data["frequency"].strip().lower()
+
+        # Look up frequency in DB
+        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
+        if not freq:
+            return error_response(f"Invalid frequency '{freq_name}'", 400)
+
+        # Update user
+        user.digest_frequency_id = freq.id
+        session.commit()
+
+        logger.info(f"User {user.id} digest frequency updated to {freq.name}")
+        return {"message": f"Digest frequency updated to {freq.name}"}, 200
+
+    except Exception as e:
+        logger.error(f"Error updating digest frequency for {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to update digest frequency", 500)
+
     finally:
         session.close()
 

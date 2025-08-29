@@ -56,8 +56,10 @@ class User(Base):
     created_at = Column(Integer)
     updated_at = Column(Integer)
     tier_id = Column(Integer, ForeignKey('tiers.id'), default=1)
+    digest_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
 
     tier = relationship("Tier")
+    frequency = relationship("Frequency")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -70,3 +72,8 @@ class Tier(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     daily_limit = Column(Integer, nullable=False, default=10)
+
+class Frequency(Base):
+    __tablename__ = 'frequency'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
