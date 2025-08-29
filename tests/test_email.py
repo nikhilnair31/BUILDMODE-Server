@@ -105,32 +105,6 @@ def send_email1():
 
     print(f"Backup email sent successfully to {TO_EMAIL}")
 
-def send_email1a():
-    msg = MIMEMultipart()
-    msg["From"] = FROM_EMAIL
-    msg["To"] = TO_EMAIL
-    msg["Subject"] = SUBJECT
-    msg.attach(MIMEText(HTML_BODY, "html"))
-
-    # Attachment
-    part = MIMEBase("application", "zip")
-    part.set_payload(zip_bytes.getvalue())
-    encoders.encode_base64(part)
-    part.add_header(
-        "Content-Disposition",
-        f'attachment; filename="FORGOR_backup.zip"',
-    )
-    msg.attach(part)
-
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(FROM_EMAIL, [TO_EMAIL], msg.as_string())
-
-    print(f"Backup email sent successfully to {TO_EMAIL}")
-
 def send_email2():
     client = Smtp2goClient(api_key = SMTP_API_KEY)
     payload = {

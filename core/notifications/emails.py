@@ -49,9 +49,9 @@ def send_email_with_zip(user_email: str, subject: str, body: str, zip_bytes: Byt
             server.login(SMTP_USER, SMTP_PASS)
             server.sendmail(FROM_EMAIL, [user_email], msg.as_string())
 
-        logger.info(f"Backup email sent successfully to {user_email}")
+        logger.info(f"Email sent successfully to {user_email}")
         return True
 
     except Exception as e:
-        logger.error(f"Failed to send backup email: {e}")
+        logger.error(f"Failed to send email: {e}")
         return False

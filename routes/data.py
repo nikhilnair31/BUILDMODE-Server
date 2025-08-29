@@ -1,11 +1,11 @@
-# file_management.py
+# data.py
 
 import os, time, uuid, zipfile, json, logging, tempfile, requests, traceback
 
 from io import BytesIO
 from routes import data_bp
 from werkzeug.utils import secure_filename
-from flask import request, jsonify, send_file, send_from_directory, abort
+from flask import request, jsonify, url_for, send_file, send_from_directory, abort
 
 from core.utils.cache import clear_user_cache
 from core.database.database import get_db_session
@@ -18,6 +18,8 @@ from core.processing.background import process_entry_async
 from core.notifications.emails import send_email_with_zip
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------- UPLOADING ------------------------------------
 
 @data_bp.route('/upload/image', methods=['POST'])
 @token_required
@@ -156,6 +158,8 @@ def upload_imageurl(current_user):
         if session:
             session.close()
 
+# ---------------------------------- DELETING ------------------------------------
+
 @data_bp.route('/delete/file', methods=['POST'])
 # @limiter.limit("1 per second")
 @token_required
@@ -203,6 +207,8 @@ def delete_file(current_user):
     finally:
         session.close()
 
+# ---------------------------------- GETTING ------------------------------------
+
 @data_bp.route('/get_file/<filename>')
 # @limiter.limit("5 per second;30 per minute")
 @token_required
@@ -238,20 +244,27 @@ def get_thumbnail(current_user, thumbnailname):
 
     return send_from_directory(Config.THUMBNAIL_DIR, thumbnailname)
 
+# ---------------------------------- DOWNLOADING ------------------------------------
+
 @data_bp.route('/bulk_download_all', methods=['GET'])
-# @limiter.limit("1 per second")
+@limiter.limit("1 per second")
 @token_required
 def bulk_download_all(current_user):
     logger.info(f"\nBulk download for: {current_user.id}\n")
     
     session = get_db_session()
-    user = session.query(User).get(current_user.id)
-    if not user:
-        e = f"User ID {current_user.id} not found"
-        logger.error(e)
-        return error_response(e, 404)
     
     try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        if not user.email or "@" not in str(user.email):
+            logger.error(f"User {user.id} has no valid email: {user.email!r}")
+            return error_response("No valid email on file for this account.", 400)
+        
         user_files = session.query(DataEntry).filter(DataEntry.user_id == user.id).all()
         logger.info(f"Found {len(user_files)} files for user {user.username}\n")
 
@@ -262,7 +275,7 @@ def bulk_download_all(current_user):
         for file in user_files:
             master_data.append({
                 "id": file.id,
-                "file_path": os.path.basename(file.file_path), # Only include base name for security/simplicity
+                "thumbnail_path": os.path.basename(file.thumbnail_path), # Only include base name for security/simplicity
                 "tags": file.tags,
                 "timestamp": file.timestamp,
                 "user_id": file.user_id
@@ -273,12 +286,15 @@ def bulk_download_all(current_user):
             zf.writestr("master.json", json.dumps(master_data, indent=2))
 
             for file in user_files:
-                path = file.file_path
+                path = file.thumbnail_path
                 if os.path.exists(path):
                     arcname = os.path.basename(path)
                     zf.write(path, arcname=f'files/{arcname}') # Put files in a 'files' subfolder
 
         memory_file.seek(0)
+        zip_bytes = memory_file.getvalue()
+        zip_size_bytes = len(zip_bytes)
+        logger.info(f"ZIP size: {zip_size_bytes} bytes ({zip_size_bytes/1024:.2f} KB)")
 
         # Send as email attachment
         sent = send_email_with_zip(
@@ -294,10 +310,8 @@ def bulk_download_all(current_user):
             return error_response("Failed to send backup email", 500)
     
     except Exception as e:
-        e = f"Error bulk downloading files: {e}"
-        logger.error(e)
-        traceback.print_exc()
-        return error_response(e, 500)
+        logger.error("Bulk download failed")
+        return error_response(f"Error bulk downloading files: {e}", 500)
     
     finally:
         session.close()

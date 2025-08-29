@@ -6,11 +6,12 @@ import time
 import logging
 from flask import request, jsonify
 from routes import auth_bp
-from core.database.database import get_db_session
-from core.database.models import User, StagingEntry, DataEntry
-from core.utils.logs import error_response
 from core.utils.config import Config
+from core.database.models import User, StagingEntry, DataEntry
+from core.database.database import get_db_session
+from core.utils.logs import error_response
 from core.utils.decoraters import token_required
+from core.utils.data import _safe_unlink
 
 logger = logging.getLogger(__name__)
 
@@ -121,19 +122,37 @@ def login():
         session.close()
 
 @auth_bp.route('/account_delete', methods=['DELETE'])
+@token_required
 def account_delete(current_user):
-    logger.info(f"\nDeleting account for: {current_user.id}\n")
-    
+    logger.info(f"Deleting account for: {current_user.id}")
+
     session = get_db_session()
-    user = session.query(User).get(current_user.id)
-    if not user:
-        e = f"User ID {current_user.id} not found"
-        logger.error(e)
-        return error_response(e, 404)
-    
     try:
-        staging_deleted = session.query(StagingEntry).filter_by(user_id=user.id).delete()
-        data_deleted = session.query(DataEntry).filter_by(user_id=user.id).delete()
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        # 1) Load records to collect file paths BEFORE bulk deletes
+        staging_entries = session.query(StagingEntry).filter_by(user_id=user.id).all()
+        data_entries    = session.query(DataEntry).filter_by(user_id=user.id).all()
+
+        # 2) Delete files on disk
+        removed_files = 0
+        for s in staging_entries:
+            if _safe_unlink(s.file_path):
+                removed_files += 1
+
+        for d in data_entries:
+            if _safe_unlink(d.file_path):
+                removed_files += 1
+            if _safe_unlink(d.thumbnail_path):
+                removed_files += 1
+
+        # 3) Bulk delete DB rows + user (faster than per-row delete)
+        staging_deleted = session.query(StagingEntry).filter_by(user_id=user.id).delete(synchronize_session=False)
+        data_deleted    = session.query(DataEntry).filter_by(user_id=user.id).delete(synchronize_session=False)
         session.delete(user)
 
         session.commit()
