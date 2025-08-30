@@ -5,6 +5,7 @@ import logging
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from core.utils.config import Config, Content
 
 load_dotenv()
 
@@ -13,25 +14,57 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------- GENERATE ------------------------------------
  
-def call_llm_api(sys_prompt, image_list):
+def call_llm_api(image_list, sys_prompt=Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT, temp=0.2):
     print(f"\nLLM...")
 
-    return call_gemini_with_images(sys_prompt, image_list)
+    return call_gemini_with_images(image_list, sys_prompt, temp)
 
-def call_gemini_with_images(sys_prompt, image_b64_list):
+def call_gemini_with_images(image_list, sys_prompt, temp):
     print(f"Calling Gemini generate...\n")
 
     try:
-        client = genai.Client(api_key = os.environ.get("GEMINI_API_KEY"))
+        client = genai.Client(
+            api_key=os.environ.get("GEMINI_API_KEY"),
+        )
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_list
+            ],
             config=types.GenerateContentConfig(
                 system_instruction=sys_prompt,
-                temperature=0.2
+                temperature=temp,
+                response_schema=Content,
+                response_mime_type="application/json",
+                thinking_config = types.ThinkingConfig(
+                    thinking_budget=0,
+                ),
             ),
-            contents=[
-                types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_b64_list
-            ]
+        )
+
+        return response.text
+            
+    except Exception as e:
+        print(f"Error getting Gemini generate: {e}")
+        return ""
+
+def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
+    print(f"Calling Gemini generate...\n")
+
+    try:
+        client = genai.Client(
+            api_key=os.environ.get("GEMINI_API_KEY"),
+        )
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=usr_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=sys_prompt,
+                temperature=temp,
+                thinking_config = types.ThinkingConfig(
+                    thinking_budget=0,
+                ),
+            ),
         )
 
         return response.text
@@ -52,7 +85,9 @@ def get_gemini_embedding(text, task_type):
     print(f"Getting Gemini embedding...\n")
     
     try:
-        client = genai.Client(api_key = os.environ.get("GEMINI_API_KEY"))
+        client = genai.Client(
+            api_key = os.environ.get("GEMINI_API_KEY")
+        )
         response = client.models.embed_content(
             model="gemini-embedding-001",
             contents=text,

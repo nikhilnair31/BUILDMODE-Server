@@ -3,23 +3,11 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from core.processing.background import encode_image_to_base64
-from core.utils.config import Config
-from pydantic import BaseModel, constr
+from core.utils.config import Config, Content
 
 load_dotenv()
 
 # HexColor = constr(pattern=r"^#(?:[0-9a-fA-F]{6})$")
-
-class Content(BaseModel):
-    app_name: str
-    engagement_counts: list[str]
-    account_identifiers: list[str]
-    links: list[str]
-    full_ocr: str
-    keywords: list[str]
-    accent_colors: list[str]
-    themes: list[str]
-    moods: list[str]
 
 file_path = "/root/projects/BUILDMODE-Server/uploads/0a8e38e2493743538499dfa6726f5417.jpg"
 
@@ -60,23 +48,20 @@ def call_gemini3(sys_prompt, image_list, temp=1):
             api_key=os.environ.get("GEMINI_API_KEY"),
         )
 
-        model = "gemini-2.5-flash"
-        contents=[
-            types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_list
-        ],
-        generate_content_config = types.GenerateContentConfig(
-            temperature=temp,
-            thinking_config = types.ThinkingConfig(
-                thinking_budget=0,
-            ),
-            response_mime_type="application/json",
-            response_schema=Content,
-            system_instruction=sys_prompt,
-        )
         response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_list
+            ],
+            config=types.GenerateContentConfig(
+                temperature=temp,
+                thinking_config = types.ThinkingConfig(
+                    thinking_budget=0,
+                ),
+                response_mime_type="application/json",
+                response_schema=Content,
+                system_instruction=sys_prompt,
+            ),
         )
         # print(f"response: {response}\n")
         # print(f"response: {response[:10]}\n")
@@ -89,7 +74,7 @@ def call_gemini3(sys_prompt, image_list, temp=1):
         print(f"Error getting Gemini generate: {e}")
         return ""
 
-TAG_PROMPT_0 = Config.IMAGE_PREPROCESS_SYSTEM_PROMPT
+TAG_PROMPT_0 = Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT
 TAG_PROMPT_1 = """
     Extract a long and comprehensive list of keywords to describe the image provided. 
     These keywords will be used for semantic search eventually. 

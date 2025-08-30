@@ -82,6 +82,7 @@ def get_similar(current_user, filename):
 @token_required
 def query(current_user):
     logger.info(f"\nReceived request to query from user of id: {current_user.id}\n")
+    
     data = request.json
     query_text = data.get("searchText", "").strip()
     if not query_text:

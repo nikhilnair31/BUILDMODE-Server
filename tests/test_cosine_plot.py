@@ -29,7 +29,7 @@ session = Session()
 
 # Sample queries and embeddings
 queries = ["dark sky", "dogs", "twitter game ui"]
-embeddings = [call_vec_api(q) for q in queries]
+embeddings = [call_vec_api(q, "RETRIEVAL_QUERY") for q in queries]
 embeddings = normalize(embeddings)  # Normalize for cosine similarity
 
 try:
@@ -38,7 +38,7 @@ try:
     for idx, vec in enumerate(embeddings):
         vec_str = '[' + ','.join(map(str, vec)) + ']'
         sql = text(f"""
-            SELECT (embedding <=> '{vec_str}') AS cosine_similarity
+            SELECT (tags_vector <=> '{vec_str}') AS cosine_similarity
             FROM data
             ORDER BY cosine_similarity DESC
             LIMIT 100
@@ -47,6 +47,9 @@ try:
         scores = [r[0] for r in results]
         similarity_scores.extend(scores)
         logger.info(f"Query '{queries[idx]}' returned {len(scores)} scores.")
+    
+    print(f"similarity_scores\n{similarity_scores}")
+    similarity_scores = [s for s in similarity_scores if s is not None]
 
     # Plot histogram to file
     output_path = "similarity_distribution.png"

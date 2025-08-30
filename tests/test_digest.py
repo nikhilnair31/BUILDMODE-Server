@@ -8,7 +8,7 @@ import collections
 from sqlalchemy import func, and_
 from core.database.database import get_db_session
 from core.database.models import DataEntry
-from core.ai.ai import call_llm_api
+from core.ai.ai import call_gemini_with_text
 
 # ---------- Helpers ----------
 
@@ -129,8 +129,7 @@ def generate_digest(user_id: int, period="weekly"):
 
     # Concatenate this period’s tags as context
     all_tags_text = "\n".join([r.tags or "" for r in now_rows])
-    llm_output = call_llm_api(sys_prompt, all_tags_text)
-    llm_digest = json.loads(llm_output)["urls"][0]
+    llm_digest = call_gemini_with_text(sys_prompt, all_tags_text)
 
     # ---- HTML ----
     period_label = "This Week" if period == "weekly" else "This Month"

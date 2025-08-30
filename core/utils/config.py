@@ -1,7 +1,20 @@
 import os
+from typing import List
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 load_dotenv()
+
+class Content(BaseModel):
+    app_name: str
+    engagement_counts: list[str]
+    account_identifiers: list[str]
+    links: list[str]
+    full_ocr: str
+    keywords: List[str] = Field(default_factory=list, max_items=20)
+    accent_colors: list[str]
+    themes: list[str]
+    moods: list[str]
 
 class Config:
     APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
@@ -18,14 +31,20 @@ class Config:
     ENGINE_URL = f'postgresql://postgres:{MIA_DB_PASSWORD}@localhost/{MIA_DB_NAME}'
 
     # Add other constants here if they are configuration-like
-    IMAGE_PREPROCESS_SYSTEM_PROMPT = """
-        Extract a long and comprehensive list of keywords to describe the image provided. These keywords will be used for semantic search eventually. Extract things like themes, dominant/accent colors, moods along with more descriptive terms. If possible determine the app the screenshot was taken in as well. Ignore phone status information. Only output as shown below
-        <tags>
-        keyword1, keyword2, ...
-        </tags>
+    IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT = """
+        Extract a long and comprehensive list of comma separated keywords to describe the image provided. 
+        These keywords will be used for semantic search. 
+        
+        Extract things like shown:
+        App Name: app.
+        Engagement Counts: 1.2K likes, 60 comments, 3M views, 200 bookmarks, 6 shares, 12 retweets, 12K upvotes etc.
+        Account Identifiers; @account1, @account2, etc.
+        Links: link1, link2, etc.
+        Full OCR: content.
+        Keywords: keyword1, keyword2, etc.
+        Accent Colors: color1, color2, etc.
+        Themes: theme1, theme2, etc.
+        Moods: color1, color2, etc.
+
+        Ignore phone status information.
     """
-    ALLOWED_USER_AGENTS = [
-        "YourAndroidApp/1.0",
-        "python-requests",
-        "PostmanRuntime",
-    ]

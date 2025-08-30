@@ -5,7 +5,7 @@ from core.utils.config import Config
 from concurrent.futures import ThreadPoolExecutor
 from core.database.database import get_db_session
 from core.database.models import StagingEntry, DataEntry, ProcessingStatus
-from core.content.images import compress_image, extract_distinct_colors2, generate_thumbnail, extract_distinct_colors, generate_img_b64_list
+from core.content.images import compress_image, generate_thumbnail, extract_distinct_colors, generate_img_b64_list
 from core.ai.ai import call_llm_api, call_vec_api
 
 logger = logging.getLogger(__name__)
@@ -50,11 +50,13 @@ def _process_entry(entry_id):
                     raise Exception("Compression failed; new_filepath is None")
 
             image_base64 = [encode_image_to_base64(new_filepath)]
-            tags_list_str = call_llm_api(
-                sys_prompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
+            extracted_content = call_llm_api(
                 image_list=image_base64
             )
-            tags_vector = call_vec_api(query_text=tags_list_str, task_type="RETRIEVAL_DOCUMENT")
+            tags_vector = call_vec_api(
+                query_text=extracted_content, 
+                task_type="RETRIEVAL_DOCUMENT"
+            )
             swatch_vector = extract_distinct_colors(new_filepath)
             thumbnail_path = generate_thumbnail(new_filepath)
             final_filepath = new_filepath
@@ -66,7 +68,7 @@ def _process_entry(entry_id):
             user_id=user_id,
             file_path=final_filepath,
             thumbnail_path=thumbnail_path,
-            tags=tags_list_str,
+            tags=extracted_content,
             tags_vector=tags_vector,
             swatch_vector=swatch_vector,
             timestamp=int(time.time())

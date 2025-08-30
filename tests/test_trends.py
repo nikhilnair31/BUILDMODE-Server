@@ -6,7 +6,7 @@ import html
 from sqlalchemy import func, and_
 from core.database.database import get_db_session
 from core.database.models import DataEntry
-from core.ai.ai import call_llm_api
+from core.ai.ai import call_gemini_with_text
 
 # ---------- Helpers ----------
 
@@ -145,7 +145,7 @@ def build_trends_html(user_id: int, period="weekly", include_global=True) -> str
                f"Global top: {glob['global_top'] if glob else []}\n"
                f"Global spikes: {glob['spikes'] if glob else []}\n"
                f"Overlap: {glob['relates_to_user'] if glob else []}")
-        ai_summary = call_llm_api(sys_prompt, ctx)
+        ai_summary = call_gemini_with_text(sys_prompt, ctx)
     except Exception as e:
         ai_summary = f"(AI summary unavailable: {e})"
 
