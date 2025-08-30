@@ -5,7 +5,7 @@ from core.utils.config import Config
 from concurrent.futures import ThreadPoolExecutor
 from core.database.database import get_db_session
 from core.database.models import StagingEntry, DataEntry, ProcessingStatus
-from core.content.images import compress_image, generate_thumbnail, extract_distinct_colors, generate_img_b64_list
+from core.content.images import compress_image, extract_distinct_colors2, generate_thumbnail, extract_distinct_colors, generate_img_b64_list
 from core.ai.ai import call_llm_api, call_vec_api
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def _process_entry(entry_id):
                 sys_prompt=Config.IMAGE_PREPROCESS_SYSTEM_PROMPT, 
                 image_list=image_base64
             )
-            tags_vector = call_vec_api(tags_list_str)
+            tags_vector = call_vec_api(query_text=tags_list_str, task_type="RETRIEVAL_DOCUMENT")
             swatch_vector = extract_distinct_colors(new_filepath)
             thumbnail_path = generate_thumbnail(new_filepath)
             final_filepath = new_filepath

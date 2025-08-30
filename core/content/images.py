@@ -52,16 +52,14 @@ def extract_distinct_colors(image_path, num_clusters=30, num_colors=10, merge_th
     # Sort by count descending
     color_counts.sort(key=lambda x: -x[1])
     top_colors = [tuple(map(int, color)) for color, _ in color_counts[:num_colors]]
-    print(f"Num of colors: {num_colors}")
-    print(f"Distinct colors: {top_colors}")
 
     # Pad to fixed length
     flat_rgb = [v for color in top_colors for v in color]
     padded_rgb = flat_rgb + [0] * (3 * num_colors - len(flat_rgb))
-    print(f"Padded RGB: {padded_rgb}")
 
     flat_rgb = [v / 255.0 for color in top_colors for v in color]  # normalize to [0,1]
     padded_rgb = flat_rgb + [0.0] * (3 * num_colors - len(flat_rgb))
+    print(f"padded_rgb: {padded_rgb}")
     return padded_rgb
 
 def generate_img_b64_list(save_path):

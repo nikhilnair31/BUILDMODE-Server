@@ -22,27 +22,19 @@ def call_gemini_with_images(sys_prompt, image_b64_list):
     print(f"Calling Gemini generate...\n")
 
     try:
-        GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-        MODEL_ID = "gemini-2.0-flash"
-
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        parts = [
-            types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_b64_list
-        ]
+        client = genai.Client(api_key = os.environ.get("GEMINI_API_KEY"))
         response = client.models.generate_content(
-            model=MODEL_ID,
+            model="gemini-2.0-flash",
             config=types.GenerateContentConfig(
                 system_instruction=sys_prompt,
-                temperature=1.0
+                temperature=0.2
             ),
-            contents=parts
+            contents=[
+                types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_b64_list
+            ]
         )
-        # print(f"response: {response}\n")
-        # print(f"response: {response[:10]}\n")
 
-        content_text = response.text
-        
-        return content_text
+        return response.text
             
     except Exception as e:
         print(f"Error getting Gemini generate: {e}")
@@ -50,28 +42,25 @@ def call_gemini_with_images(sys_prompt, image_b64_list):
 
 # ---------------------------------- EMBEDDINGS ----------------------------------
  
-def call_vec_api(query_text):
+def call_vec_api(query_text, task_type):
     print(f"Vec...")
 
-    response_json = get_gemini_embedding(query_text)
+    response_json = get_gemini_embedding(query_text, task_type)
     return response_json
 
-def get_gemini_embedding(text, task_type="SEMANTIC_SIMILARITY"):
+def get_gemini_embedding(text, task_type):
     print(f"Getting Gemini embedding...\n")
     
     try:
-        GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-        MODEL_ID = "text-embedding-004"
-
-        client = genai.Client(api_key = GEMINI_API_KEY)
+        client = genai.Client(api_key = os.environ.get("GEMINI_API_KEY"))
         response = client.models.embed_content(
-            model=MODEL_ID,
+            model="gemini-embedding-001",
             contents=text,
-            config=types.EmbedContentConfig(task_type=task_type)
+            config=types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=768
+            )
         )
-        # print(f"response: {response[:10]}\n")
-        # print(f"len(response.embeddings[0].values): {len(response.embeddings[0].values)}\n")
-        # 768
 
         embedding = response.embeddings[0].values
         return embedding

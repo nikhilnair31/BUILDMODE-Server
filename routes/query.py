@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 @lru_cache(maxsize=512)
 def cached_call_vec_api(text_input):
     """Cached version of call_vec_api."""
-    return call_vec_api(text_input)
+    return call_vec_api(query_text=text_input, task_type = "RETRIEVAL_QUERY")
 
 @query_bp.route('/get_similar/<filename>')
 # @limiter.limit("5 per second;30 per minute")
@@ -156,68 +156,3 @@ def query(current_user):
 
     query_cache[cache_key] = result_json
     return jsonify(result_json)
-
-@query_bp.route('/check', methods=['POST'])
-# @limiter.limit("1 per second")
-@token_required
-def check(current_user):
-    logger.info(f"\nChecking for: {current_user.id}\n")
-    data = request.json
-    query_text = data.get("searchText", "").strip()
-    if not query_text:
-        e = "searchText required"
-        logger.error(e)
-        return error_response(e, 400)
-    
-    session = get_db_session()
-    user = session.query(User).get(current_user.id)
-    if not user:
-        e = f"User ID {current_user.id} not found"
-        logger.error(e)
-        return error_response(e, 404)
-    
-    color_code = extract_color_code(query_text)
-    timestamp = parse_time_input(query_text)
-    unix_time = int(timestamp.timestamp()) if timestamp else None
-
-    cleaned_query = clean_text_of_color_and_time(query_text)
-    query_vector = cached_call_vec_api(cleaned_query) if cleaned_query else None
-
-    select_fields = ["file_path", "tags", "timestamp"]
-    where_clauses = [f"user_id = '{user.id}'"]
-    order_by_clauses = []
-
-    if color_code:
-        logger.info("Detected color input")
-        swatch_vector = color_code if isinstance(color_code, str) and color_code.startswith("#") else rgb_to_vec(color_code)
-        select_fields.append(f"swatch_vector <-> '{swatch_vector}' AS color_distance")
-        order_by_clauses.append("color_distance ASC")
-
-    if query_vector:
-        logger.info("Detected content input")
-        select_fields.append(f"tags_vector <=> '{query_vector}' AS semantic_distance")
-        order_by_clauses.append("semantic_distance ASC")
-
-    if unix_time:
-        logger.info(f"Detected time filter (<= {unix_time})")
-        where_clauses.append(f"timestamp <= {unix_time}")
-    
-    final_sql = f"""
-        SELECT {', '.join(select_fields)}
-        FROM data
-        WHERE {' AND '.join(where_clauses)}
-        ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
-        LIMIT 3
-    """
-
-    sql = text(final_sql)
-    result = session.execute(sql).fetchall()
-    logger.info(f"result: {result[:1]}\n")
-
-    useful_content = len(result) > 0
-    return jsonify({
-        "results": {
-            "useful": useful_content,
-            "query": query_text,
-        }
-    }), 200
