@@ -7,8 +7,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 ## To-Do
 
 - [ ] Setup digest sending system based on user's selected frequency
-- [ ] Improve data extraction from posts to include account identifiers and filterable tags 
-- [ ] Confirm visual color code extraction
 
 ## Setup
 

@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, desc
 from core.utils.config import Config
 from core.database.models import DataEntry
 from core.processing.background import encode_image_to_base64
-from core.content.images import compress_image, compress_image2, generate_thumbnail
+from core.content.images import compress_image, generate_thumbnail
 from core.ai.ai import call_llm_api, call_vec_api
 
 load_dotenv()
@@ -42,7 +42,7 @@ def update_latest_tags(limit=10):
 
                 # compress image again
                 with open(entry.file_path, "rb") as f:
-                    new_path = compress_image2(f)
+                    new_path = compress_image(f)
                 if not new_path:
                     logger.error(f"Compression failed for entry {entry.id}")
                     continue
@@ -79,4 +79,4 @@ def update_latest_tags(limit=10):
 
 
 if __name__ == "__main__":
-    update_latest_tags(limit=50)
+    update_latest_tags(limit=30)

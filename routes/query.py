@@ -114,7 +114,7 @@ def query(current_user):
     cleaned_query = clean_text_of_color_and_time(query_text)
     query_vector = cached_call_vec_api(cleaned_query) if cleaned_query else None
 
-    select_fields = ["file_path", "thumbnail_path"]
+    select_fields = ["file_path", "thumbnail_path", "tags"]
     where_clauses = [f"user_id = '{userid}'"]
     order_by_clauses = []
 
@@ -142,7 +142,8 @@ def query(current_user):
         "results": [
             {
                 "file_name": os.path.basename(r[0]),
-                "thumbnail_name": os.path.basename(r[1]) if r[1] else None
+                "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
+                "tags": r[2]
             }
             for r in result
         ]
