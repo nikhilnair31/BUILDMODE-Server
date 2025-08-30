@@ -105,7 +105,6 @@ def query(current_user):
     userid = user.id
     logger.info(f"Querying for userid: {userid}")
     
-    color_code = extract_color_code(query_text)
     start_time_parse = time.perf_counter()
     user_tz = user.timezone if user and user.timezone else 'UTC'
     timestamp = parse_time_input(query_text, user_tz)
@@ -118,12 +117,6 @@ def query(current_user):
     select_fields = ["file_path", "thumbnail_path"]
     where_clauses = [f"user_id = '{userid}'"]
     order_by_clauses = []
-
-    if color_code:
-        logger.info("Detected color input")
-        swatch_vector = color_code if isinstance(color_code, str) and color_code.startswith("#") else rgb_to_vec(color_code)
-        select_fields.append(f"swatch_vector <-> '{swatch_vector}' AS color_distance")
-        order_by_clauses.append("color_distance ASC")
 
     if query_vector:
         logger.info("Detected content input")
@@ -139,7 +132,7 @@ def query(current_user):
         FROM data
         WHERE {' AND '.join(where_clauses)}
         ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
-        LIMIT 100
+        LIMIT 1000
     """
     sql = text(final_sql)
     result = session.execute(sql).fetchall()

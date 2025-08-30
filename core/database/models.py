@@ -23,6 +23,17 @@ class ProcessingStatus(str):
     COMPLETED = "completed"
     FAILED = "failed"
 
+class Tier(Base):
+    __tablename__ = 'tiers'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    daily_limit = Column(Integer, nullable=False, default=10)
+
+class Frequency(Base):
+    __tablename__ = 'frequency'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+
 class StagingEntry(Base):
     __tablename__ = 'staging'
 
@@ -40,10 +51,9 @@ class DataEntry(Base):
     user_id = Column(Integer)
     file_path = Column(String)
     thumbnail_path = Column(String)
-    timestamp = Column(Integer)
     tags = Column(String)
     tags_vector = Column(Vector(768))
-    swatch_vector = Column(Vector(30))
+    timestamp = Column(Integer)
 
 class User(Base):
     __tablename__ = 'users'
@@ -66,14 +76,3 @@ class User(Base):
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
-
-class Tier(Base):
-    __tablename__ = 'tiers'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    daily_limit = Column(Integer, nullable=False, default=10)
-
-class Frequency(Base):
-    __tablename__ = 'frequency'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)

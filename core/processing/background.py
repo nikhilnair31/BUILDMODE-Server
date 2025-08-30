@@ -5,7 +5,7 @@ from core.utils.config import Config
 from concurrent.futures import ThreadPoolExecutor
 from core.database.database import get_db_session
 from core.database.models import StagingEntry, DataEntry, ProcessingStatus
-from core.content.images import compress_image, generate_thumbnail, extract_distinct_colors, generate_img_b64_list
+from core.content.images import compress_image, generate_thumbnail
 from core.ai.ai import call_llm_api, call_vec_api
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,6 @@ def _process_entry(entry_id):
                 query_text=extracted_content, 
                 task_type="RETRIEVAL_DOCUMENT"
             )
-            swatch_vector = extract_distinct_colors(new_filepath)
             thumbnail_path = generate_thumbnail(new_filepath)
             final_filepath = new_filepath
 
@@ -70,7 +69,6 @@ def _process_entry(entry_id):
             thumbnail_path=thumbnail_path,
             tags=extracted_content,
             tags_vector=tags_vector,
-            swatch_vector=swatch_vector,
             timestamp=int(time.time())
         )
         session.add(data_entry)

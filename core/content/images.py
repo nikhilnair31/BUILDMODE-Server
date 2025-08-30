@@ -3,143 +3,80 @@
 import io
 import os
 import uuid
-import fitz
-import base64
 import logging
-import numpy as np
-from sklearn.cluster import KMeans
 from core.utils.config import Config
-from pdf2image import convert_from_path
 from werkzeug.utils import secure_filename
-from PIL import Image, ImageDraw, ImageFont
-from colormath.color_diff import delta_e_cie2000
-from colormath.color_objects import sRGBColor, LabColor
-from colormath.color_conversions import convert_color
+from PIL import Image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def rgb_to_lab(rgb):
-    srgb = sRGBColor(rgb[0]/255, rgb[1]/255, rgb[2]/255)
-    return convert_color(srgb, LabColor)
-
-def merge_similar_colors(colors, threshold=20):
-    distinct = []
-    for color in colors:
-        lab1 = rgb_to_lab(color)
-        if all(delta_e_cie2000(lab1, rgb_to_lab(other)) > threshold for other in distinct):
-            distinct.append(color)
-    return distinct
-
-def extract_distinct_colors(image_path, num_clusters=30, num_colors=10, merge_threshold=20):
-    image = Image.open(image_path).convert('RGB')
-    image = image.resize((100, 100))  # speed
-    pixels = np.array(image).reshape(-1, 3)
-
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42).fit(pixels)
-    centers = kmeans.cluster_centers_.astype(int)
-
-    merged = merge_similar_colors(centers, threshold=merge_threshold)
-    merged = sorted(merged, key=lambda c: -np.sum((pixels == c).all(axis=1)))  # sort by frequency
-
-    # Count frequency of each merged color
-    color_counts = []
-    for color in merged:
-        mask = np.linalg.norm(pixels - color, axis=1) < merge_threshold
-        count = np.sum(mask)
-        color_counts.append((color, count))
-
-    # Sort by count descending
-    color_counts.sort(key=lambda x: -x[1])
-    top_colors = [tuple(map(int, color)) for color, _ in color_counts[:num_colors]]
-
-    # Pad to fixed length
-    flat_rgb = [v for color in top_colors for v in color]
-    padded_rgb = flat_rgb + [0] * (3 * num_colors - len(flat_rgb))
-
-    flat_rgb = [v / 255.0 for color in top_colors for v in color]  # normalize to [0,1]
-    padded_rgb = flat_rgb + [0.0] * (3 * num_colors - len(flat_rgb))
-    print(f"padded_rgb: {padded_rgb}")
-    return padded_rgb
-
-def generate_img_b64_list(save_path):
-    # ✅ Load PDF and convert each page to JPEG base64
-    doc = fitz.open(save_path)
-    if doc.page_count == 0:
-        return None
-
-    image_b64_list = []
-    for page in doc:
-        pix = page.get_pixmap()
-        image_bytes = pix.tobytes("jpeg")
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        image_b64_list.append(image_b64)
-
-    doc.close()
-    
-    return image_b64_list
-
-def compress_image(tempfile):
+def compress_image(tempfile, max_size_kb=500):
+    """
+    Compress an image to be under max_size_kb, preferring JPEG output.
+    Uses binary search on quality for speed.
+    """
     logger.info(f"Compressing image at {tempfile}")
-    try:
-        max_size_kb = 500
 
-        temp_path = tempfile.name
+    try:
+        temp_path = tempfile.name if hasattr(tempfile, "name") else tempfile
         file_name = os.path.basename(temp_path)
-        if '.' not in file_name:
+
+        if "." not in file_name:
             logger.error(f"Invalid file name format: {file_name}")
             return None
 
-        name, ext = os.path.splitext(file_name)
-        ext = ext.lower().lstrip('.')  # 'jpg', 'jpeg', etc.
-        # logger.info(f'\ntemp_path:{temp_path}\nfile_name: {file_name}\nname: {name}\next:{ext}')
-
+        name, _ = os.path.splitext(file_name)
         final_filename = secure_filename(f"{name}.jpg")
         final_filepath = os.path.join(Config.UPLOAD_DIR, final_filename)
-        # logger.info(f'\nfinal_filename:{final_filename}\nfinal_filepath: {final_filepath}')
-
-        img_format = 'JPEG' if ext in ['.jpg', '.jpeg'] else 'PNG'
 
         img = Image.open(temp_path)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+        if img.mode != "RGB":
+            img = img.convert("RGB")
 
-        scale = 1.0
-        while scale > 0.1:
-            resized = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
+        # --- quick shortcut: if file already small enough ---
+        if os.path.getsize(temp_path) <= max_size_kb * 1024:
+            img.save(final_filepath, format="JPEG", quality=85, optimize=True)
+            logger.info(f"Image already small enough; saved as {final_filepath}")
+            return final_filepath
+
+        # --- if image is extremely large, downscale once ---
+        max_pixels = 1920 * 1080  # cap size to ~1080p for speed
+        if img.width * img.height > max_pixels:
+            img.thumbnail((1920, 1080), Image.LANCZOS)
+
+        # --- binary search for quality ---
+        low, high = 10, 95
+        best_bytes = None
+
+        while low <= high:
+            mid = (low + high) // 2
             buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=mid, optimize=True)
+            size_kb = buffer.tell() / 1024
 
-            if img_format == 'JPEG':
-                for quality in range(85, 10, -5):
-                    buffer.seek(0)
-                    buffer.truncate(0)
-                    resized.save(buffer, format=img_format, quality=quality, optimize=True, exif=b'')
-                    if buffer.tell() <= max_size_kb:
-                        with open(final_filepath, 'wb') as f:
-                            f.write(buffer.getvalue())
-                        return final_filepath
-            else:  # PNG
-                resized.save(buffer, format=img_format, optimize=True)
-                if buffer.tell() <= max_size_kb:
-                    with open(final_filepath, 'wb') as f:
-                        f.write(buffer.getvalue())
-                    return final_filepath
+            if size_kb <= max_size_kb:
+                best_bytes = buffer.getvalue()
+                low = mid + 1  # try higher quality
+            else:
+                high = mid - 1  # lower quality
 
-            scale -= 0.1
+        # --- save best result ---
+        if best_bytes:
+            with open(final_filepath, "wb") as f:
+                f.write(best_bytes)
+            logger.info(f"Compressed image saved to {final_filepath} ({len(best_bytes)/1024:.1f} KB)")
+            return final_filepath
+        else:
+            # fallback: save at lowest quality
+            img.save(final_filepath, format="JPEG", quality=10, optimize=True)
+            logger.warning(f"Fallback compression used for {final_filepath}")
+            return final_filepath
 
-        # Save last attempt even if not within size limit
-        img.save(final_filepath, format='JPEG', optimize=True)
-        logger.info(f"Compressed image saved to {final_filepath}")
-
-        return final_filepath
     except Exception as e:
         logger.error(f"Failed to compress image at {tempfile}: {e}")
         return None
 
-def generate_image_thumbnail(source_path, dest_path, size=(300, 300)):
-    with Image.open(source_path) as img:
-        img.thumbnail(size)
-        img.save(dest_path, "JPEG")
 def generate_thumbnail(file_path):
     logger.info(f"Generating thumbnail for {file_path}")
     try:
@@ -148,7 +85,9 @@ def generate_thumbnail(file_path):
         dest_path = os.path.join(Config.THUMBNAIL_DIR, f"{thumbnail_uuid}.jpg")
 
         if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
-            generate_image_thumbnail(file_path, dest_path)
+            with Image.open(file_path) as img:
+                img.thumbnail((300, 300))
+                img.save(dest_path, "JPEG")
         else:
             return None  # unsupported
         
