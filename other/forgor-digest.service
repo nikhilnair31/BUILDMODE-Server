@@ -1,0 +1,17 @@
+[Unit]
+Description=Send FORGOR digests
+After=network.target
+
+[Service]
+User=root
+Type=oneshot
+WorkingDirectory=/root/projects/BUILDMODE-Server
+Environment=PYTHONPATH=/root/projects/BUILDMODE-Server
+ExecStart=/root/projects/BUILDMODE-Server/env/bin/python services/digest.py
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

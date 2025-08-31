@@ -125,6 +125,85 @@ journalctl -u forgor-api.service -f
 
 ---
 
+### 4. Digest Service (Systemd Timer)
+
+The digest system sends weekly/monthly digests to users.
+
+#### Create Service
+```bash
+sudo nano /etc/systemd/system/forgor-digest.service
+```bash
+
+
+Example:
+
+```bash
+[Unit]
+Description=Send FORGOR digests
+After=network.target
+
+[Service]
+Type=simple
+User=forgor
+WorkingDirectory=/home/forgor/projects/BUILDMODE-Server
+ExecStart=/home/forgor/projects/BUILDMODE-Server/env/bin/python \
+    /home/forgor/projects/BUILDMODE-Server/services/digest.py
+Restart=on-failure
+```bash
+
+#### Create Timer
+```bash
+sudo nano /etc/systemd/system/forgor-digest.timer
+```bash
+
+
+Example (run daily at 3 AM):
+
+[Unit]
+Description=Run FORGOR digest job daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
+Enable & Start
+sudo systemctl daemon-reexec && sudo systemctl daemon-reload
+sudo systemctl enable --now forgor-digest.timer
+
+5. Logging & Debugging Digest Jobs
+
+Check if the timer is active:
+
+systemctl status forgor-digest.timer
+systemctl list-timers | grep forgor-digest
+
+
+Check last run of the service:
+
+systemctl status forgor-digest.service
+
+
+Show logs (live tail):
+
+journalctl -u forgor-digest.service -f
+
+
+Run digest manually (for debugging):
+
+sudo systemctl start forgor-digest.service
+
+
+Inspect only recent logs (last 50 lines):
+
+journalctl -u forgor-digest.service -n 50
+
+
+If your Python script uses print() or logging, output will appear here automatically.
+Optionally, also log to a file in /var/log/forgor-digest.log.
+
 ### 4. Watchdog (Auto-Restart Flask)
 
 #### Place Script

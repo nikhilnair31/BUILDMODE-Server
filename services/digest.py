@@ -1,16 +1,15 @@
 # digest.py
 
+import html, json, random, re, logging, collections
 from datetime import datetime, UTC, timedelta
-import html
-import json
-import math
-import random
-import re
-import collections
+from dotenv import load_dotenv
+from sqlalchemy.orm import sessionmaker
 from typing import Dict, Any, List, Tuple, Optional
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, create_engine, desc
 from core.database.database import get_db_session
-from core.database.models import DataEntry
+from core.database.models import DataEntry, User
+from core.notifications.emails import is_valid_email, send_email
+from core.utils.config import Config
 from core.ai.ai import call_gemini_with_text
 
 # ---------- Rendering ----------
@@ -50,8 +49,6 @@ BASE_CSS = f"""
   ul.list {{ margin:0; padding-left:18px; }}
   ul.list li {{ margin:4px 0; color:var(--acc-0x); }}
 """
-
-# ---- Section renderers (mosaic vs list) ----
 
 def _mosaic_tiles(pairs:List[Tuple[str,int]], max_span:int=4)->str:
     if not pairs:
@@ -504,8 +501,63 @@ def generate_digest(user_id: int, period="weekly"):
   </div>
 </body>
 </html>"""
-    print(html_out)
+    # print(html_out)
+
+    return html_out
 
 # ---------- Run directly ----------
+
+load_dotenv()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
+
+engine = create_engine(Config.ENGINE_URL)
+Session = sessionmaker(bind=engine)
+
 if __name__ == "__main__":
-    generate_digest(user_id=1, period="weekly")
+    session = Session()
+
+    try:
+        now = int(datetime.now(UTC).timestamp())
+        
+        all_users = session.query(User).all()
+
+        for user in all_users:
+            # check email validity
+            if not is_valid_email(user.email):
+                print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
+                continue
+            
+            freq_name = user.frequency.name if user.frequency else "unspecified"
+
+            # decide if digest is due
+            last_sent = user.last_digest_sent or 0
+            due = False
+
+            if freq_name == "weekly":
+                due = now - last_sent >= 604800  # 7 days
+            elif freq_name == "monthly":
+                due = now - last_sent >= 2592000 # ~30 days
+
+            if due:
+                logger.info(f"Sending digest to {user.username} ({user.email}) [{freq_name}]")
+
+                digest_content = generate_digest(user_id=user.id, period=freq_name)
+                # print(f"digest_content\n{digest_content[:100]}")
+                if digest_content:
+                    send_email(user.email, f"Your {freq_name} FORGOR Digest", digest_content)
+                    user.last_digest_sent = now
+                    session.add(user)
+                else:
+                    logger.warning(f"No digest content generated for {user.username}")
+
+                # update last sent timestamp
+                user.last_digest_sent = now
+                session.add(user)
+
+        session.commit()
+        session.close()
+            
+    except Exception as e:
+        print(f"Error creating digest: {e}")
+        session.close()
