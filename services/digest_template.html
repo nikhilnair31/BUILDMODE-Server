@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digest Template</title>
+  <style>
+    :root {
+      --base-0:#1e1c2c;
+      --base-1:#221f31;
+      --base-2:#7b7889;
+      --acc-0:#deff96;
+      --acc-0x:#ECFFCF;
+      --acc-1:#A67BF2;
+      --acc-1t:#337553B0;
+    }
+
+    body {
+      background: var(--base-0);
+      font-family: Arial, sans-serif;
+      color: white;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .digest {
+      border: 2px solid var(--acc-0);
+      padding: 10px;
+      max-width: 800px;
+      margin: auto;
+      background: var(--base-1);
+    }
+
+    .digest-header {
+      background: var(--base-0);
+      padding: 10px;
+      border-bottom: 2px solid var(--acc-0);
+    }
+
+    .digest-header h1 {
+      margin: 0;
+      color: var(--acc-0);
+      font-size: 22px;
+    }
+
+    .digest-header span {
+      font-size: 14px;
+      color: var(--base-2);
+    }
+
+    .section {
+      margin-top: 20px;
+      background: var(--base-0);
+      padding: 15px;
+    }
+
+    .section h2 {
+      margin-top: 0;
+      font-size: 16px;
+      border-bottom: 1px solid var(--base-2);
+      padding-bottom: 5px;
+      color: var(--acc-0x);
+    }
+
+    /* AI Summary */
+    #ai-summary {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #fff;
+    }
+
+    /* Past saves grid */
+    .saves-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .save-box {
+      background: var(--base-2);
+      height: 100px;
+    }
+
+    /* Stats row */
+    .stats-row {
+      display: flex;
+      justify-content: space-between;
+      text-align: center;
+      margin-top: 10px;
+    }
+
+    .stat-box {
+      flex: 1;
+      padding: 10px;
+      margin: 5px;
+      font-weight: bold;
+      font-size: 16px;
+      border-radius: 4px;
+    }
+
+    .stat-green { background: var(--acc-0); color: #000; }
+    .stat-purple { background: var(--acc-1); color: #000; }
+    .stat-dark { background: var(--base-0); color: #fff; border: 1px solid var(--base-2); }
+
+    /* Colors */
+    .colors-box {
+      height: 100px;
+      background: conic-gradient(
+        red 0 20%, 
+        green 20% 40%, 
+        yellow 40% 60%, 
+        cyan 60% 80%, 
+        blue 80% 100%
+      );
+      border: 1px solid var(--base-2);
+    }
+
+    /* Sources */
+    .sources-box {
+      font-size: 14px;
+      color: var(--acc-0x);
+      margin-top: 10px;
+    }
+
+    /* Save Timing */
+    .timing-bar {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+
+    .timing-bar div {
+      background: var(--base-2);
+      width: 12%;
+      height: 50px;
+    }
+
+    /* Engagement */
+    .engagement-stats {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    .engagement-stats div {
+      text-align: center;
+    }
+
+    .views { color: var(--acc-0); }
+    .likes { color: var(--acc-1); }
+    .shares { color: var(--acc-0x); }
+  </style>
+</head>
+<body>
+  <div class="digest">
+    <!-- Header -->
+    <div class="digest-header">
+      <h1>DIGEST</h1>
+      <span id="date-range">THIS WEEK: YYYY-MM-DD → YYYY-MM-DD</span>
+    </div>
+
+    <!-- AI Summary -->
+    <div class="section">
+      <h2>AI SUMMARY</h2>
+      <p id="ai-summary">[AI_SUMMARY]</p>
+    </div>
+
+    <!-- Past Few Saves -->
+    <div class="section">
+        <h2>PAST FEW SAVES</h2>
+        <img class="saves-grid" src="[IMAGE_PLACEHOLDER]" alt="Mosaic">
+    </div>
+
+    <!-- Basic Stats -->
+    <div class="section">
+      <h2>BASIC STATS</h2>
+      <div class="stats-row">
+        <div class="stat-box stat-green" id="saves">0 Saves</div>
+        <div class="stat-box stat-purple" id="total">0 Total</div>
+        <div class="stat-box stat-dark" id="streak">0 days Streak</div>
+      </div>
+    </div>
+
+    <!-- Colors -->
+    <div class="section">
+      <h2>COLORS</h2>
+      <div class="colors-box"></div>
+    </div>
+
+    <!-- Sources -->
+    <div class="section">
+      <h2>SOURCES</h2>
+      <div class="sources-box" id="sources">
+        <ul>
+          <li>X (0)</li>
+          <li>Post (0)</li>
+          <li>Twitter (0)</li>
+          <li>Reddit (0)</li>
+          <li>Unknown (0)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Save Timing -->
+    <div class="section">
+      <h2>SAVE TIMING</h2>
+      <div class="timing-bar">
+        <div></div><div></div><div></div><div></div><div></div><div></div><div></div>
+      </div>
+    </div>
+
+    <!-- Engagement -->
+    <div class="section">
+      <h2>ENGAGEMENT</h2>
+      <div class="engagement-stats">
+        <div class="views" id="views">0 Views</div>
+        <div class="likes" id="likes">0 Likes</div>
+        <div class="shares" id="shares">0 Shares</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

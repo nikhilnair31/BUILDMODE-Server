@@ -6,7 +6,28 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Setup digest sending system based on user's selected frequency
+- [ ] Improve digest
+    - AI 
+        - Summary
+        - What to build?
+        - Suggested collections
+    - Stats
+        - Saves this period
+        - Change vs last
+        - Total
+        - Save streak (days)
+    - Spikes
+    - Trends
+    - Sources
+    - Engagements metrics
+    - Time
+    - Colors
+        - Frequency
+        - Random from past
+    - Tags
+        - Frequency
+    - A random post from back in time
+- [ ] Create nudges system
 
 ## Setup
 

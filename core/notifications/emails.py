@@ -1,3 +1,4 @@
+from email.mime.image import MIMEImage
 import os
 import logging
 import base64
@@ -30,16 +31,34 @@ def is_valid_email(email: str) -> bool:
         return False
     return EMAIL_REGEX.match(email) is not None
 
-def send_email(user_email: str, subject: str, body: str):
+def send_email(user_email: str, subject: str, html_body: str, text_body: str = None, inline_images: dict = None):
     """
     Sends a backup email with ZIP attachment via raw SMTP/MIME.
     """
     try:
-        msg = MIMEMultipart()
+        # Outer "related" container for HTML + inline images
+        msg = MIMEMultipart("related")
         msg["From"] = FROM_EMAIL
         msg["To"] = user_email
         msg["Subject"] = subject
-        msg.attach(MIMEText(body, "html"))
+
+        # Alternative: plain-text and HTML
+        alt = MIMEMultipart("alternative")
+        if not text_body:
+            # very naive fallback: strip tags
+            text_body = re.sub(r"<[^>]+>", "", html_body)
+        alt.attach(MIMEText(text_body, "plain", "utf-8"))
+        alt.attach(MIMEText(html_body, "html", "utf-8"))
+        msg.attach(alt)
+        msg.attach(alt)
+
+        # Inline images
+        if inline_images:
+            for cid, img_bytes in inline_images.items():
+                img_part = MIMEImage(img_bytes)
+                img_part.add_header("Content-ID", f"<{cid}>")
+                img_part.add_header("Content-Disposition", "inline", filename=f"{cid}.jpg")
+                msg.attach(img_part)
 
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.ehlo()
@@ -56,7 +75,7 @@ def send_email(user_email: str, subject: str, body: str):
         traceback.format_exc()
         return False
 
-def send_email_with_zip(user_email: str, subject: str, body: str, zip_bytes: BytesIO):
+def send_email_with_zip(user_email: str, subject: str, html_body: str, zip_bytes: BytesIO, text_body: str = None):
     """
     Sends a backup email with ZIP attachment via raw SMTP/MIME.
     """
@@ -65,7 +84,14 @@ def send_email_with_zip(user_email: str, subject: str, body: str, zip_bytes: Byt
         msg["From"] = FROM_EMAIL
         msg["To"] = user_email
         msg["Subject"] = subject
-        msg.attach(MIMEText(body, "html"))
+
+        if not text_body:
+            text_body = re.sub(r"<[^>]+>", "", html_body)
+
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(text_body, "plain", "utf-8"))
+        alt.attach(MIMEText(html_body, "html", "utf-8"))
+        msg.attach(alt)
 
         # Attachment
         part = MIMEBase("application", "zip")
