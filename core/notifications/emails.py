@@ -55,7 +55,7 @@ def send_email(user_email: str, subject: str, html_body: str, text_body: str = N
         # Inline images
         if inline_images:
             for cid, img_bytes in inline_images.items():
-                img_part = MIMEImage(img_bytes)
+                img_part = MIMEImage(img_bytes, _subtype="jpeg")
                 img_part.add_header("Content-ID", f"<{cid}>")
                 img_part.add_header("Content-Disposition", "inline", filename=f"{cid}.jpg")
                 msg.attach(img_part)
