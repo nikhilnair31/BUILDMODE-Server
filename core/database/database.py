@@ -18,6 +18,13 @@ event.listen(
     create_extension.execute_if(dialect="postgresql")
 )
 
+create_extension_trgm = DDL("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+event.listen(
+    Base.metadata,
+    "before_create",
+    create_extension_trgm.execute_if(dialect="postgresql")
+)
+
 ivfflat_index = DDL("""
 CREATE INDEX IF NOT EXISTS data_tags_vector_idx
 ON data
@@ -45,6 +52,17 @@ event.listen(
     DataEntry.__table__,
     "after_create",
     fts_index.execute_if(dialect="postgresql")
+)
+
+trgm_index = DDL("""
+CREATE INDEX IF NOT EXISTS data_tags_trgm_idx
+ON data
+USING gin (lower(tags) gin_trgm_ops);
+""")
+event.listen(
+    DataEntry.__table__,
+    "after_create",
+    trgm_index.execute_if(dialect="postgresql")
 )
 
 def init_db():

@@ -109,7 +109,7 @@ def query(current_user):
         return error_response(e, 404)
 
     userid = user.id
-    logger.info(f"Querying for userid: {userid}")
+    logger.info(f"Querying for userid: {userid} - query_text: {query_text}")
     
     # ---------------- New ----------------
 
@@ -122,30 +122,36 @@ def query(current_user):
                 thumbnail_path,
                 tags,
                 ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
-                tags_vector <=> (:vec_query)::vector AS distance
+                tags_vector <=> (:vec_query)::vector AS distance,
+                GREATEST(
+                    word_similarity(lower(tags), lower(:trgm_query)),
+                    similarity(lower(tags), lower(:trgm_query))
+                ) AS trgm_sim
             FROM data
             WHERE user_id = :userid
         )
         
         SELECT *,
-            (0.5 * text_rank - 0.5 * (1 - distance)) AS hybrid_score
+            (0.45 * text_rank) + (0.45 * (1 - distance)) + (0.10 * trgm_sim) AS hybrid_score
         FROM scored
-        WHERE text_rank > 0.05 OR distance < 0.5
-        ORDER BY hybrid_score DESC
-        LIMIT 1000;
+        WHERE
+            text_rank > 0.05
+            and DISTANCE < 1
+            AND trgm_sim > 0.01
+        ORDER BY distance ASC
     """)
-    params = {"userid": userid, "fts_query": query_text, "vec_query": vec_query}
+    params = {
+        "userid": userid,
+        "fts_query": query_text,
+        "trgm_query": query_text,
+        "vec_query": vec_query
+    }
 
-    result = session.execute(sql, params).fetchall()
+    result = session.execute(sql, params).fetchmany(100)
     logger.info(f"len result: {len(result)}\n")
     logger.info(f"result\n")
-    for row in result:
-        logger.info(f"file_path: {row[0]}")
-        logger.info(f"tags: {row[2][:150]}")
-        logger.info(f"text_rank: {row[3]}")
-        logger.info(f"distance: {row[4]}")
-        logger.info(f"hybrid_score: {row[5]}")
-        logger.info(f"{"-"*60}")
+    for i, row in enumerate(result):
+        logger.info(f"{i}\n{row}\n{"-"*60}")
 
     result_json = {
         "results": [

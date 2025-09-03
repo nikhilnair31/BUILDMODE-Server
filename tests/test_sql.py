@@ -4,29 +4,42 @@ from core.database.database import get_db_session
 
 session = get_db_session()
 
-fts_query = 'coffee'
-vec_query = call_vec_api(query_text=fts_query, task_type = "RETRIEVAL_QUERY")
+query_text = 'car'
+vec_query = call_vec_api(query_text=query_text, task_type = "RETRIEVAL_QUERY")
 
 sql = text("""
-    SELECT 
-        id,
-        LEFT(tags, 100) AS tags_preview,
-        ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
-        tags_vector <=> (:vec_query)::vector AS distance,
-        (0.7 * ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query))
-        - 0.3 * (1 - (tags_vector <=> (:vec_query)::vector))) AS hybrid_score
+    WITH scored AS (
+        SELECT 
+            file_path,
+            thumbnail_path,
+            tags,
+            ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
+            tags_vector <=> (:vec_query)::vector AS distance,
+            GREATEST(
+                word_similarity(lower(tags), lower(:trgm_query)),
+                similarity(lower(tags), lower(:trgm_query))
+            ) AS trgm_sim
+        FROM data
+        WHERE user_id = :userid
+    )
     
-    FROM data
-    
-    WHERE 
-        ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) > 0.05
-        OR tags_vector <=> (:vec_query)::vector < 0.5
-    
-    ORDER BY hybrid_score DESC
-    LIMIT 20;
+    SELECT *,
+        (0.45 * text_rank) + (0.45 * (1 - distance)) + (0.10 * trgm_sim) AS hybrid_score
+    FROM scored
+    WHERE
+        text_rank > 0.05
+        and DISTANCE < 1
+        AND trgm_sim > 0.01
+    ORDER BY distance ASC;
 """)
-params = {"fts_query": fts_query, "vec_query": vec_query}
+params = {
+    "userid": 1,
+    "fts_query": query_text,
+    "trgm_query": query_text,
+    "vec_query": vec_query
+}
 
 result = session.execute(sql, params)
-for row in result:
-    print(row)
+for i, row in enumerate(result):
+    print(f"{i}\n{row}")
+    print(f"{"-"*60}")
