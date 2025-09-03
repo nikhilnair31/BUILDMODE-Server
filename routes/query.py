@@ -1,21 +1,18 @@
 # query.py
 
-import os
-import time
-import logging
-import traceback
-from sqlalchemy import bindparam, text
+import os, logging, traceback
+from sqlalchemy import text
 from routes import query_bp
 from functools import lru_cache
 from flask import request, jsonify
 from core.utils.config import Config
 from core.database.database import get_db_session
 from core.database.models import User, DataEntry
-from core.utils.logs import error_response
-from core.utils.cache import query_cache, get_cache_key, clear_user_cache
-from core.content.parser import parse_time_input, extract_color_code, clean_text_of_color_and_time, rgb_to_vec, sanitize_tsquery
 from core.ai.ai import call_vec_api
+from core.utils.logs import error_response
 from core.utils.decoraters import token_required
+from core.utils.cache import query_cache, get_cache_key
+from core.content.parser import extract_time_filter, sanitize_tsquery
 
 logger = logging.getLogger(__name__)
 
@@ -112,11 +109,14 @@ def query(current_user):
     logger.info(f"Querying for userid: {userid} - query_text: {query_text}")
     
     # ---------------- New ----------------
+    
+    query_wo_time_text, time_filter = extract_time_filter(query_text)
+    logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
 
-    cleaned_query = sanitize_tsquery(query_text)
-    logger.info(f"cleaned_query: {cleaned_query}")
+    cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
+    logger.info(f"cleaned_query_text: {cleaned_query_text}")
 
-    vec_query = cached_call_vec_api(cleaned_query)
+    vec_query = cached_call_vec_api(cleaned_query_text) if cleaned_query_text else None
 
     sql = text("""
         WITH bounds AS (
@@ -131,15 +131,35 @@ def query(current_user):
                 file_path,
                 thumbnail_path,
                 tags,
-                ts_rank(to_tsvector('english', tags), to_tsquery('english', :fts_query)) AS text_rank,
-                tags_vector <=> (:vec_query)::vector AS distance,
-                GREATEST(
-                    word_similarity(lower(tags), lower(:trgm_query)),
-                    similarity(lower(tags), lower(:trgm_query))
-                ) AS trgm_sim,
+                timestamp, 
+                TO_TIMESTAMP(timestamp) AS converted_date,
+                CASE 
+                    WHEN :fts_query <> '' 
+                    THEN ts_rank(to_tsvector('english', tags), to_tsquery('english', :fts_query))
+                    ELSE 1
+                END AS text_rank,
+                CASE 
+                    WHEN :vec_query IS NOT NULL 
+                    THEN tags_vector <=> (:vec_query)::vector 
+                    ELSE 0
+                END AS distance,
+                CASE 
+                    WHEN :trgm_query <> '' 
+                    THEN GREATEST(
+                            word_similarity(lower(tags), lower(:trgm_query)),
+                            similarity(lower(tags), lower(:trgm_query))
+                        )
+                    ELSE 1
+                END AS trgm_sim,
                 (timestamp - bounds.min_ts)::float / NULLIF(bounds.max_ts - bounds.min_ts, 0) AS recency
             FROM data, bounds
-            WHERE user_id = :userid
+            WHERE
+                user_id = :userid
+                AND (
+                    (:start_ts IS NULL OR timestamp >= :start_ts)
+                    AND
+                    (:end_ts   IS NULL OR timestamp <= :end_ts)
+                )
         )
         
         SELECT
@@ -150,16 +170,18 @@ def query(current_user):
             + (0.04 * recency) AS hybrid_score
         FROM scored
         WHERE
-            text_rank > 0.05
-            and DISTANCE < 1
-            AND trgm_sim > 0.01
+            text_rank >= 0.05
+            and DISTANCE <= 1
+            AND trgm_sim >= 0.01
         ORDER BY distance ASC
     """)
     params = {
         "userid": userid,
-        "fts_query": cleaned_query,
-        "trgm_query": query_text,
-        "vec_query": vec_query
+        "fts_query": cleaned_query_text,
+        "trgm_query": cleaned_query_text,
+        "vec_query": vec_query,
+        "start_ts": time_filter[0] if time_filter else None,
+        "end_ts": time_filter[1] if time_filter else None
     }
 
     result = session.execute(sql, params).fetchmany(100)
@@ -215,7 +237,10 @@ def check_text(current_user):
     
     # ---------------- New ----------------
 
-    vec_query = cached_call_vec_api(check_text)
+    cleaned_query = sanitize_tsquery(check_text)
+    logger.info(f"cleaned_query: {cleaned_query}")
+
+    vec_query = cached_call_vec_api(cleaned_query)
     sql = text("""
         WITH bounds AS (
             SELECT 
@@ -255,7 +280,7 @@ def check_text(current_user):
     """)
     params = {
         "userid": userid,
-        "fts_query": check_text,
+        "fts_query": cleaned_query,
         "trgm_query": check_text,
         "vec_query": vec_query
     }

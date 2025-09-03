@@ -4,6 +4,7 @@ import re
 import pytz
 import logging
 import parsedatetime
+from timefhuman import timefhuman, tfhConfig
 from datetime import date, datetime, timedelta
 from dateutil import parser as dateutil_parser
 
@@ -104,6 +105,8 @@ VIBE_KEYWORDS = {
 HEX_RE = re.compile(r'#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b')
 HEX_NOHASH_RE = re.compile(r'\b([0-9a-fA-F]{6})\b')  # sometimes people type ffaabb without #
 _TOKEN_RE = re.compile(r'\(|\)|\bAND\b|\bOR\b|\bNOT\b', flags=re.IGNORECASE)
+
+config = tfhConfig(return_matched_text=True)
 
 def extract_quoted_phrases(q):
     """
@@ -260,143 +263,6 @@ def extract_time_range(q):
 
     return None, remainder
 
-def _tokenize_boolean(s):
-    """
-    Returns list of tokens preserving order. Terms (non-operator text) will be trimmed.
-    Note: quoted phrases should be extracted earlier; they will appear in the TERM tokens if not removed.
-    """
-    tokens = []
-    idx = 0
-    for m in _TOKEN_RE.finditer(s):
-        # text before token is a TERM
-        if m.start() > idx:
-            term = s[idx:m.start()].strip()
-            if term:
-                tokens.append(("TERM", term))
-        tok = m.group(0).upper()
-        if tok == '(':
-            tokens.append(("LPAREN","("))
-        elif tok == ')':
-            tokens.append(("RPAREN",")"))
-        elif tok == 'AND':
-            tokens.append(("AND","AND"))
-        elif tok == 'OR':
-            tokens.append(("OR","OR"))
-        elif tok == 'NOT':
-            tokens.append(("NOT","NOT"))
-        idx = m.end()
-    # trailing term
-    if idx < len(s):
-        tail = s[idx:].strip()
-        if tail:
-            tokens.append(("TERM", tail))
-    return tokens
-
-def _parse_tokens_to_ast(tokens):
-    tokens = tokens[:]  # copy
-    pos = 0
-
-    def peek():
-        return tokens[pos] if pos < len(tokens) else (None,None)
-
-    def consume(expected_type=None):
-        nonlocal pos
-        if pos < len(tokens):
-            t = tokens[pos]
-            pos += 1
-            return t
-        return (None,None)
-
-    def parse_factor():
-        ttype, val = peek()
-        if ttype == "NOT":
-            consume("NOT")
-            node = {"not": parse_factor()}
-            return node
-        if ttype == "LPAREN":
-            consume("LPAREN")
-            node = parse_expr()
-            # consume RPAREN if present
-            if peek()[0] == "RPAREN":
-                consume("RPAREN")
-            return node
-        if ttype == "TERM":
-            consume("TERM")
-            return {"term": val}
-        # fallback: consume and return empty term
-        consume()
-        return {"term": ""}
-
-    def parse_term():
-        # handle leading NOTs
-        node = parse_factor()
-        return node
-
-    def parse_expr():
-        node = parse_term()
-        while True:
-            ttype, val = peek()
-            if ttype in ("AND","OR"):
-                op = ttype.lower()
-                consume(ttype)
-                right = parse_term()
-                node = {"op": op, "left": node, "right": right}
-            else:
-                break
-        return node
-
-    ast = parse_expr()
-    return ast
-
-def sanitize_tsquery(user_input: str) -> str:
-    """
-    Sanitize user input for PostgreSQL to_tsquery.
-    - Keeps logical operators: AND, OR, NOT (and &, |, ! forms).
-    - Strips unsafe punctuation.
-    - Converts words to lowercase.
-    - Joins words with & by default if no explicit operator.
-    """
-    if not user_input:
-        return ""
-
-    # Normalize spacing and case
-    q = user_input.strip().lower()
-
-    # Replace word operators with symbols PostgreSQL expects
-    q = re.sub(r"\band\b", "&", q)
-    q = re.sub(r"\bor\b", "|", q)
-    q = re.sub(r"\bnot\b", "!", q)
-
-    # Remove dangerous punctuation but keep parentheses, &, |, !
-    q = re.sub(r"[^a-z0-9_\s\&\|\!\(\):*]", " ", q)
-
-    # Collapse multiple spaces
-    q = re.sub(r"\s+", " ", q).strip()
-
-    # If the query has no operator, make it AND by default
-    tokens = q.split()
-    if len(tokens) > 1 and not any(op in q for op in ["&", "|", "!"]):
-        q = " & ".join(tokens)
-
-    return q
-
-def extract_boolean_structure(q):
-    """
-    Returns (ast, remainder)
-    The AST is built from boolean tokens found in the input. If no boolean tokens are present,
-    ast will be a simple {'term': '<remaining text>'} node.
-    The function also returns remainder with boolean operator words removed.
-    """
-    tokens = _tokenize_boolean(q)
-    # If there are no boolean operators, return a TERM node and original remainder
-    if not any(t[0] in ("AND","OR","NOT","LPAREN","RPAREN") for t in tokens):
-        return {"term": q.strip()}, q
-    ast = _parse_tokens_to_ast(tokens)
-    # Remove the operator words from the text to produce a remainder. We'll replace AND/OR/NOT and parens with space.
-    remainder = re.sub(r'\bAND\b|\bOR\b|\bNOT\b|\(|\)', " ", q, flags=re.IGNORECASE)
-    remainder = re.sub(r'\s+', " ", remainder).strip()
-    return ast, remainder
-
 def _is_ocr_like_token(tok):
     """
     Heuristics to detect OCR/exact tokens:
@@ -483,26 +349,104 @@ def classify_intent(query, parsed=None):
 
     return {"intent": intent, "score": score, "features": features}
 
-def parse_query(query):
-    q = query
-    quoted, q = extract_quoted_phrases(q)
-    colors, q = extract_colors(q)
-    time_range, q = extract_time_range(q)
-    boolean_ast, q_after_boolean = extract_boolean_structure(q)
-    free_text = q_after_boolean.strip()
+def sanitize_tsquery(user_input: str) -> str:
+    """
+    Convert user input into a safe PostgreSQL to_tsquery string.
+    Supports AND/OR/NOT operators and minimal parentheses.
+    """
+    if not user_input:
+        return ""
 
-    result = {
-        "original_query": query,
-        "quoted_phrases": quoted,
-        "colors": colors,
-        "time_range": time_range,
-        "boolean_ast": boolean_ast,
-        "free_text": free_text
-    }
+    q = user_input.strip().lower()
 
-    # call classifier and add to result
-    intent_info = classify_intent(query, parsed=result)
-    result["intent"] = intent_info["intent"]
-    result["intent_score"] = intent_info["score"]
-    result["intent_features"] = intent_info["features"]
-    return result
+    # Replace word operators with symbols
+    q = re.sub(r"\band\b", "&", q)
+    q = re.sub(r"\bor\b", "|", q)
+    q = re.sub(r"\bnot\b", "!", q)
+
+    # Keep words, operators, and parens; drop other punctuation
+    q = re.sub(r"[^a-z0-9_\s\&\|\!\(\)]", " ", q)
+
+    # Tokenize into words, operators, and parens
+    tokens = re.findall(r"\(|\)|\&|\||\!|[a-z0-9_]+", q)
+
+    out = []
+    prev_was_term_or_close = False  # True if previous token is word or ')'
+    prev_token = None
+
+    def push_and_if_needed():
+        if prev_was_term_or_close:
+            out.append("&")
+
+    for tok in tokens:
+        if tok in {"&", "|"}:
+            # Avoid consecutive operators or leading operator
+            if prev_token in {None, "&", "|", "!", "("}:
+                continue
+            out.append(tok)
+            prev_was_term_or_close = False
+
+        elif tok == "!":
+            # If a NOT follows a term/close, insert implicit AND
+            push_and_if_needed()
+            out.append("!")
+            prev_was_term_or_close = False  # next must be a term or '('
+
+        elif tok == "(":
+            # Implicit AND before '(' if previous was a term/close
+            push_and_if_needed()
+            out.append("(")
+            prev_was_term_or_close = False
+
+        elif tok == ")":
+            # Only close if last output was a term or ')'
+            if prev_was_term_or_close:
+                out.append(")")
+            # keep prev_was_term_or_close = True (still a "closed" term)
+
+        else:
+            # word/lexeme
+            if prev_token == "!":
+                # ok: ! word
+                pass
+            else:
+                # Implicit AND between adjacent words / after ')'
+                push_and_if_needed()
+            out.append(tok)  # optionally add ':*' for prefix: f"{tok}:*"
+            prev_was_term_or_close = True
+
+        prev_token = tok if tok != ")" else ")"
+
+    # Drop trailing operator/NOT/implicit open
+    while out and out[-1] in {"&", "|", "!", "("}:
+        out.pop()
+
+    return " ".join(out)
+def extract_time_filter(query_text: str):
+    """
+    Extract natural language time expressions from query_text.
+    Returns (cleaned_query, (start, end)) or (cleaned_query, None).
+    """
+    matches = timefhuman(query_text, config=config)
+
+    if not matches:
+        return query_text, None
+
+    # For now just use the first match
+    matched_text, span, parsed_dt = matches[0]
+
+    # Remove the matched substring using indices (safer than .replace)
+    start_idx, end_idx = span
+    cleaned_text = (query_text[:start_idx] + query_text[end_idx:]).strip()
+
+    # Normalize into a (start, end) tuple
+    if isinstance(parsed_dt, datetime):
+        start = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        end   = parsed_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        time_filter = (int(start.timestamp()), int(end.timestamp()))
+    elif isinstance(parsed_dt, tuple) and all(isinstance(d, datetime) for d in parsed_dt):
+        time_filter = tuple(int(d.timestamp()) for d in parsed_dt)
+    else:
+        time_filter = None  # skip weird outputs for now
+
+    return cleaned_text, time_filter
