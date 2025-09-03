@@ -4,7 +4,7 @@ import os
 import time
 import logging
 import traceback
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from routes import query_bp
 from functools import lru_cache
 from flask import request, jsonify
@@ -111,38 +111,41 @@ def query(current_user):
     userid = user.id
     logger.info(f"Querying for userid: {userid}")
     
-    start_time_parse = time.perf_counter()
-    user_tz = user.timezone if user and user.timezone else 'UTC'
-    timestamp = parse_time_input(query_text, user_tz)
-    unix_time = int(timestamp.timestamp()) if timestamp else None
-    logger.info(f"Time parsing took {(time.perf_counter() - start_time_parse) * 1000:.2f}ms")
+    # ---------------- New ----------------
 
-    cleaned_query = clean_text_of_color_and_time(query_text)
-    query_vector = cached_call_vec_api(cleaned_query) if cleaned_query else None
+    vec_query = call_vec_api(query_text=query_text, task_type = "RETRIEVAL_QUERY")
 
-    select_fields = ["file_path", "thumbnail_path", "tags"]
-    where_clauses = [f"user_id = '{userid}'"]
-    order_by_clauses = []
+    sql = text("""
+        WITH scored AS (
+            SELECT 
+                file_path,
+                thumbnail_path,
+                tags,
+                ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
+                tags_vector <=> (:vec_query)::vector AS distance
+            FROM data
+            WHERE user_id = :userid
+        )
+        
+        SELECT *,
+            (0.5 * text_rank - 0.5 * (1 - distance)) AS hybrid_score
+        FROM scored
+        WHERE text_rank > 0.05 OR distance < 0.5
+        ORDER BY hybrid_score DESC
+        LIMIT 1000;
+    """)
+    params = {"userid": userid, "fts_query": query_text, "vec_query": vec_query}
 
-    if query_vector:
-        logger.info("Detected content input")
-        select_fields.append(f"tags_vector <=> '{query_vector}' AS semantic_distance")
-        order_by_clauses.append("semantic_distance ASC")
-
-    if unix_time:
-        logger.info(f"Detected time filter (>= {unix_time})")
-        where_clauses.append(f"timestamp >= {unix_time}")
-    
-    final_sql = f"""
-        SELECT {', '.join(select_fields)}
-        FROM data
-        WHERE {' AND '.join(where_clauses)}
-        ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
-        LIMIT 1000
-    """
-    sql = text(final_sql)
-    result = session.execute(sql).fetchall()
+    result = session.execute(sql, params).fetchall()
     logger.info(f"len result: {len(result)}\n")
+    logger.info(f"result\n")
+    for row in result:
+        logger.info(f"file_path: {row[0]}")
+        logger.info(f"tags: {row[2][:150]}")
+        logger.info(f"text_rank: {row[3]}")
+        logger.info(f"distance: {row[4]}")
+        logger.info(f"hybrid_score: {row[5]}")
+        logger.info(f"{"-"*60}")
 
     result_json = {
         "results": [
@@ -160,11 +163,11 @@ def query(current_user):
 
 # ---------------------------------- QUERYING ------------------------------------
 
-@query_bp.route('/check', methods=['POST'])
+@query_bp.route('/check/text', methods=['POST'])
 # @limiter.limit("5 per second")
 @token_required
-def check(current_user):
-    logger.info(f"\nReceived request to check from user of id: {current_user.id}\n")
+def check_text(current_user):
+    logger.info(f"\nReceived request to check using text from user of id: {current_user.id}\n")
     
     data = request.json
     check_text = data.get("searchText", "").strip()
@@ -175,7 +178,7 @@ def check(current_user):
     
     cache_key = get_cache_key(current_user.id, check_text)
     if cache_key in query_cache:
-        logger.info("Serving /api/check from cache.")
+        logger.info("Serving /api/check/text from cache.")
         return jsonify(query_cache[cache_key])
     
     session = get_db_session()
