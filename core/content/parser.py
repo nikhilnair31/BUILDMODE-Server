@@ -348,6 +348,38 @@ def _parse_tokens_to_ast(tokens):
     ast = parse_expr()
     return ast
 
+def sanitize_tsquery(user_input: str) -> str:
+    """
+    Sanitize user input for PostgreSQL to_tsquery.
+    - Keeps logical operators: AND, OR, NOT (and &, |, ! forms).
+    - Strips unsafe punctuation.
+    - Converts words to lowercase.
+    - Joins words with & by default if no explicit operator.
+    """
+    if not user_input:
+        return ""
+
+    # Normalize spacing and case
+    q = user_input.strip().lower()
+
+    # Replace word operators with symbols PostgreSQL expects
+    q = re.sub(r"\band\b", "&", q)
+    q = re.sub(r"\bor\b", "|", q)
+    q = re.sub(r"\bnot\b", "!", q)
+
+    # Remove dangerous punctuation but keep parentheses, &, |, !
+    q = re.sub(r"[^a-z0-9_\s\&\|\!\(\):*]", " ", q)
+
+    # Collapse multiple spaces
+    q = re.sub(r"\s+", " ", q).strip()
+
+    # If the query has no operator, make it AND by default
+    tokens = q.split()
+    if len(tokens) > 1 and not any(op in q for op in ["&", "|", "!"]):
+        q = " & ".join(tokens)
+
+    return q
+
 def extract_boolean_structure(q):
     """
     Returns (ast, remainder)

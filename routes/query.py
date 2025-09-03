@@ -13,7 +13,7 @@ from core.database.database import get_db_session
 from core.database.models import User, DataEntry
 from core.utils.logs import error_response
 from core.utils.cache import query_cache, get_cache_key, clear_user_cache
-from core.content.parser import parse_time_input, extract_color_code, clean_text_of_color_and_time, rgb_to_vec
+from core.content.parser import parse_time_input, extract_color_code, clean_text_of_color_and_time, rgb_to_vec, sanitize_tsquery
 from core.ai.ai import call_vec_api
 from core.utils.decoraters import token_required
 
@@ -113,7 +113,10 @@ def query(current_user):
     
     # ---------------- New ----------------
 
-    vec_query = cached_call_vec_api(query_text)
+    cleaned_query = sanitize_tsquery(query_text)
+    logger.info(f"cleaned_query: {cleaned_query}")
+
+    vec_query = cached_call_vec_api(cleaned_query)
 
     sql = text("""
         WITH bounds AS (
@@ -128,7 +131,7 @@ def query(current_user):
                 file_path,
                 thumbnail_path,
                 tags,
-                ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
+                ts_rank(to_tsvector('english', tags), to_tsquery('english', :fts_query)) AS text_rank,
                 tags_vector <=> (:vec_query)::vector AS distance,
                 GREATEST(
                     word_similarity(lower(tags), lower(:trgm_query)),
@@ -154,7 +157,7 @@ def query(current_user):
     """)
     params = {
         "userid": userid,
-        "fts_query": query_text,
+        "fts_query": cleaned_query,
         "trgm_query": query_text,
         "vec_query": vec_query
     }
