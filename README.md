@@ -7,7 +7,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 ## To-Do
 
 - [ ] Improve search
-    - Include trigram similarity for fuzzy matching
     - Include recency boost
 - [ ] Improve querying
     - Include AND/OR/NOT parsing

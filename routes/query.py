@@ -116,7 +116,14 @@ def query(current_user):
     vec_query = cached_call_vec_api(query_text)
 
     sql = text("""
-        WITH scored AS (
+        WITH bounds AS (
+            SELECT 
+                MIN(timestamp) AS min_ts,
+                MAX(timestamp) AS max_ts
+            FROM data
+            WHERE user_id = :userid
+        ),
+        scored AS (
             SELECT 
                 file_path,
                 thumbnail_path,
@@ -126,13 +133,18 @@ def query(current_user):
                 GREATEST(
                     word_similarity(lower(tags), lower(:trgm_query)),
                     similarity(lower(tags), lower(:trgm_query))
-                ) AS trgm_sim
-            FROM data
+                ) AS trgm_sim,
+                (timestamp - bounds.min_ts)::float / NULLIF(bounds.max_ts - bounds.min_ts, 0) AS recency
+            FROM data, bounds
             WHERE user_id = :userid
         )
         
-        SELECT *,
-            (0.45 * text_rank) + (0.45 * (1 - distance)) + (0.10 * trgm_sim) AS hybrid_score
+        SELECT
+            *,
+            (0.43 * text_rank) 
+            + (0.43 * (1 - distance)) 
+            + (0.10 * trgm_sim) 
+            + (0.04 * recency) AS hybrid_score
         FROM scored
         WHERE
             text_rank > 0.05
