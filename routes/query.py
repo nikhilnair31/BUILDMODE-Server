@@ -193,10 +193,12 @@ def check(current_user):
     select_fields = ["file_path", "thumbnail_path"]
     where_clauses = [f"user_id = '{userid}'"]
     order_by_clauses = []
+    THRESHOLD = 0.38  # adjust as needed
 
     if check_vector:
         logger.info("Detected content input")
         select_fields.append(f"tags_vector <=> '{check_vector}' AS semantic_distance")
+        where_clauses.append(f"tags_vector <=> '{check_vector}' < {THRESHOLD}")
         order_by_clauses.append("semantic_distance ASC")
     
     final_sql = f"""
@@ -214,6 +216,7 @@ def check(current_user):
         "results": [
             {
                 "file_name": os.path.basename(r[0]),
+                "thumbnail_name": os.path.basename(r[1]),
             }
             for r in result
         ]
