@@ -113,7 +113,7 @@ def query(current_user):
     
     # ---------------- New ----------------
 
-    vec_query = call_vec_api(query_text=query_text, task_type = "RETRIEVAL_QUERY")
+    vec_query = cached_call_vec_api(query_text)
 
     sql = text("""
         WITH scored AS (
@@ -191,35 +191,40 @@ def check_text(current_user):
     userid = user.id
     logger.info(f"Checking for userid: {userid}")
     
-    check_vector = cached_call_vec_api(check_text)
-
-    select_fields = ["file_path", "thumbnail_path"]
-    where_clauses = [f"user_id = '{userid}'"]
-    order_by_clauses = []
-    THRESHOLD = 0.38  # adjust as needed
-
-    if check_vector:
-        logger.info("Detected content input")
-        select_fields.append(f"tags_vector <=> '{check_vector}' AS semantic_distance")
-        where_clauses.append(f"tags_vector <=> '{check_vector}' < {THRESHOLD}")
-        order_by_clauses.append("semantic_distance ASC")
     
-    final_sql = f"""
-        SELECT {', '.join(select_fields)}
-        FROM data
-        WHERE {' AND '.join(where_clauses)}
-        ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
-        LIMIT 10
-    """
-    sql = text(final_sql)
-    result = session.execute(sql).fetchall()
+    # ---------------- New ----------------
+
+    vec_query = cached_call_vec_api(check_text)
+
+    sql = text("""
+        WITH scored AS (
+            SELECT 
+                file_path,
+                thumbnail_path,
+                tags,
+                ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
+                tags_vector <=> (:vec_query)::vector AS distance
+            FROM data
+            WHERE user_id = :userid
+        )
+        
+        SELECT *,
+            (0.5 * text_rank - 0.5 * (1 - distance)) AS hybrid_score
+        FROM scored
+        WHERE text_rank > 0.05 OR distance < 0.5
+        ORDER BY hybrid_score DESC
+        LIMIT 1000;
+    """)
+    params = {"userid": userid, "fts_query": check_text, "vec_query": vec_query}
+
+    result = session.execute(sql, params).fetchall()
     logger.info(f"len result: {len(result)}\n")
 
     result_json = {
         "results": [
             {
                 "file_name": os.path.basename(r[0]),
-                "thumbnail_name": os.path.basename(r[1]),
+                "thumbnail_name": os.path.basename(r[1]) if r[1] else None
             }
             for r in result
         ]
