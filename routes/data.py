@@ -1,12 +1,11 @@
 # data.py
 
 import os, time, uuid, zipfile, json, logging, tempfile, requests, traceback
-
+import mimetypes
 from io import BytesIO
 from routes import data_bp
 from werkzeug.utils import secure_filename
-from flask import request, jsonify, url_for, send_file, send_from_directory, abort
-
+from flask import make_response, request, jsonify, url_for, send_file, send_from_directory, abort
 from core.utils.cache import clear_user_cache
 from core.database.database import get_db_session
 from core.database.models import StagingEntry, DataEntry, User, ProcessingStatus
@@ -209,8 +208,7 @@ def delete_file(current_user):
 
 # ---------------------------------- GETTING ------------------------------------
 
-@data_bp.route('/get_file/<filename>')
-# @limiter.limit("5 per second;30 per minute")
+@data_bp.route('/get_file/<filename>', methods=['GET'])
 @token_required
 def get_file(current_user, filename):
     session = get_db_session()
@@ -219,8 +217,8 @@ def get_file(current_user, filename):
         logger.error(f"User {current_user.username} not found.\n")
         return error_response(f"User {current_user.username} not found.", 404)
 
-    filename = secure_filename(filename)
-    file_path = os.path.join(Config.UPLOAD_DIR, filename)
+    safe = secure_filename(filename)
+    file_path = os.path.join(Config.UPLOAD_DIR, safe)
     if not os.path.exists(file_path):
         abort(404) # Or return error_response("File not found", 404)
 

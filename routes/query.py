@@ -19,10 +19,14 @@ from core.utils.decoraters import token_required
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------- CACHING ------------------------------------
+
 @lru_cache(maxsize=512)
 def cached_call_vec_api(text_input):
     """Cached version of call_vec_api."""
     return call_vec_api(query_text=text_input, task_type = "RETRIEVAL_QUERY")
+
+# ---------------------------------- SIMILARITY ------------------------------------
 
 @query_bp.route('/get_similar/<filename>')
 # @limiter.limit("5 per second;30 per minute")
@@ -76,6 +80,8 @@ def get_similar(current_user, filename):
         return error_response(e, 500)
     finally:
         session.close()
+
+# ---------------------------------- QUERYING ------------------------------------
 
 @query_bp.route('/query', methods=['POST'])
 # @limiter.limit("5 per second")
@@ -144,6 +150,70 @@ def query(current_user):
                 "file_name": os.path.basename(r[0]),
                 "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
                 "tags": r[2]
+            }
+            for r in result
+        ]
+    }
+
+    query_cache[cache_key] = result_json
+    return jsonify(result_json)
+
+# ---------------------------------- QUERYING ------------------------------------
+
+@query_bp.route('/check', methods=['POST'])
+# @limiter.limit("5 per second")
+@token_required
+def check(current_user):
+    logger.info(f"\nReceived request to check from user of id: {current_user.id}\n")
+    
+    data = request.json
+    check_text = data.get("searchText", "").strip()
+    if not check_text:
+        e = "searchText required"
+        logger.error(e)
+        return error_response(e, 400)
+    
+    cache_key = get_cache_key(current_user.id, check_text)
+    if cache_key in query_cache:
+        logger.info("Serving /api/check from cache.")
+        return jsonify(query_cache[cache_key])
+    
+    session = get_db_session()
+    user = session.query(User).get(current_user.id)
+    if not user:
+        e = f"User ID {current_user.id} not found"
+        logger.error(e)
+        return error_response(e, 404)
+
+    userid = user.id
+    logger.info(f"Checking for userid: {userid}")
+    
+    check_vector = cached_call_vec_api(check_text)
+
+    select_fields = ["file_path", "thumbnail_path"]
+    where_clauses = [f"user_id = '{userid}'"]
+    order_by_clauses = []
+
+    if check_vector:
+        logger.info("Detected content input")
+        select_fields.append(f"tags_vector <=> '{check_vector}' AS semantic_distance")
+        order_by_clauses.append("semantic_distance ASC")
+    
+    final_sql = f"""
+        SELECT {', '.join(select_fields)}
+        FROM data
+        WHERE {' AND '.join(where_clauses)}
+        ORDER BY {', '.join(order_by_clauses) if order_by_clauses else 'timestamp DESC'}
+        LIMIT 10
+    """
+    sql = text(final_sql)
+    result = session.execute(sql).fetchall()
+    logger.info(f"len result: {len(result)}\n")
+
+    result_json = {
+        "results": [
+            {
+                "file_name": os.path.basename(r[0]),
             }
             for r in result
         ]

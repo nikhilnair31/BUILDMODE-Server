@@ -295,18 +295,6 @@ Verify auto-renewal:
 sudo certbot renew --dry-run
 ```
 
----
-
-Got it 👍 — I’ll expand the **Logs & Checks** section so you have a quick reference for:
-
-* **Postgres logs**
-* **Systemd service logs**
-* **Quick SQL connect + SELECT examples**
-
-Here’s the improved bottom section of your README:
-
----
-
 ## Quick Commands
 
 ### PostgreSQL
