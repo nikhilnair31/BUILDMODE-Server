@@ -6,8 +6,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Improve search
-    - Include recency boost
 - [ ] Improve querying
     - Include AND/OR/NOT parsing
     - Include color parsing

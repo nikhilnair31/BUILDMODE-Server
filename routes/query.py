@@ -213,27 +213,49 @@ def check_text(current_user):
     # ---------------- New ----------------
 
     vec_query = cached_call_vec_api(check_text)
-
     sql = text("""
-        WITH scored AS (
+        WITH bounds AS (
+            SELECT 
+                MIN(timestamp) AS min_ts,
+                MAX(timestamp) AS max_ts
+            FROM data
+            WHERE user_id = :userid
+        ),
+        scored AS (
             SELECT 
                 file_path,
                 thumbnail_path,
                 tags,
                 ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
-                tags_vector <=> (:vec_query)::vector AS distance
-            FROM data
+                tags_vector <=> (:vec_query)::vector AS distance,
+                GREATEST(
+                    word_similarity(lower(tags), lower(:trgm_query)),
+                    similarity(lower(tags), lower(:trgm_query))
+                ) AS trgm_sim,
+                (timestamp - bounds.min_ts)::float / NULLIF(bounds.max_ts - bounds.min_ts, 0) AS recency
+            FROM data, bounds
             WHERE user_id = :userid
         )
         
-        SELECT *,
-            (0.5 * text_rank - 0.5 * (1 - distance)) AS hybrid_score
+        SELECT
+            *,
+            (0.43 * text_rank) 
+            + (0.43 * (1 - distance)) 
+            + (0.10 * trgm_sim) 
+            + (0.04 * recency) AS hybrid_score
         FROM scored
-        WHERE text_rank > 0.05 OR distance < 0.5
-        ORDER BY hybrid_score DESC
-        LIMIT 1000;
+        WHERE
+            text_rank > 0.05
+            and DISTANCE < 1
+            AND trgm_sim > 0.01
+        ORDER BY distance ASC
     """)
-    params = {"userid": userid, "fts_query": check_text, "vec_query": vec_query}
+    params = {
+        "userid": userid,
+        "fts_query": check_text,
+        "trgm_query": check_text,
+        "vec_query": vec_query
+    }
 
     result = session.execute(sql, params).fetchall()
     logger.info(f"len result: {len(result)}\n")
