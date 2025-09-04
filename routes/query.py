@@ -164,10 +164,10 @@ def query(current_user):
         
         SELECT
             *,
-            (0.43 * text_rank) 
-            + (0.43 * (1 - distance)) 
-            + (0.10 * trgm_sim) 
-            + (0.04 * recency) AS hybrid_score
+                (0.40 * text_rank) 
+            +   (0.46 * (1 - distance)) 
+            +   (0.10 * trgm_sim) 
+            +   (0.04 * recency) AS hybrid_score
         FROM scored
         WHERE
             text_rank >= 0.05
@@ -237,10 +237,14 @@ def check_text(current_user):
     
     # ---------------- New ----------------
 
-    cleaned_query = sanitize_tsquery(check_text)
-    logger.info(f"cleaned_query: {cleaned_query}")
+    query_wo_time_text, time_filter = extract_time_filter(check_text)
+    logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
 
-    vec_query = cached_call_vec_api(cleaned_query)
+    cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
+    logger.info(f"cleaned_query_text: {cleaned_query_text}")
+
+    vec_query = cached_call_vec_api(cleaned_query_text) if cleaned_query_text else None
+
     sql = text("""
         WITH bounds AS (
             SELECT 
@@ -254,35 +258,57 @@ def check_text(current_user):
                 file_path,
                 thumbnail_path,
                 tags,
-                ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query)) AS text_rank,
-                tags_vector <=> (:vec_query)::vector AS distance,
-                GREATEST(
-                    word_similarity(lower(tags), lower(:trgm_query)),
-                    similarity(lower(tags), lower(:trgm_query))
-                ) AS trgm_sim,
+                timestamp, 
+                TO_TIMESTAMP(timestamp) AS converted_date,
+                CASE 
+                    WHEN :fts_query <> '' 
+                    THEN ts_rank(to_tsvector('english', tags), to_tsquery('english', :fts_query))
+                    ELSE 1
+                END AS text_rank,
+                CASE 
+                    WHEN :vec_query IS NOT NULL 
+                    THEN tags_vector <=> (:vec_query)::vector 
+                    ELSE 0
+                END AS distance,
+                CASE 
+                    WHEN :trgm_query <> '' 
+                    THEN GREATEST(
+                            word_similarity(lower(tags), lower(:trgm_query)),
+                            similarity(lower(tags), lower(:trgm_query))
+                        )
+                    ELSE 1
+                END AS trgm_sim,
                 (timestamp - bounds.min_ts)::float / NULLIF(bounds.max_ts - bounds.min_ts, 0) AS recency
             FROM data, bounds
-            WHERE user_id = :userid
+            WHERE
+                user_id = :userid
+                AND (
+                    (:start_ts IS NULL OR timestamp >= :start_ts)
+                    AND
+                    (:end_ts   IS NULL OR timestamp <= :end_ts)
+                )
         )
         
         SELECT
             *,
-            (0.43 * text_rank) 
-            + (0.43 * (1 - distance)) 
-            + (0.10 * trgm_sim) 
-            + (0.04 * recency) AS hybrid_score
+                (0.40 * text_rank) 
+            +   (0.46 * (1 - distance)) 
+            +   (0.10 * trgm_sim) 
+            +   (0.04 * recency) AS hybrid_score
         FROM scored
         WHERE
-            text_rank > 0.05
-            and DISTANCE < 1
-            AND trgm_sim > 0.01
+            text_rank >= 0.05
+            and DISTANCE <= 1
+            AND trgm_sim >= 0.01
         ORDER BY distance ASC
     """)
     params = {
         "userid": userid,
-        "fts_query": cleaned_query,
-        "trgm_query": check_text,
-        "vec_query": vec_query
+        "fts_query": cleaned_query_text,
+        "trgm_query": cleaned_query_text,
+        "vec_query": vec_query,
+        "start_ts": time_filter[0] if time_filter else None,
+        "end_ts": time_filter[1] if time_filter else None
     }
 
     result = session.execute(sql, params).fetchall()

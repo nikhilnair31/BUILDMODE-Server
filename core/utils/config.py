@@ -11,7 +11,7 @@ class Content(BaseModel):
     account_identifiers: list[str]
     links: list[str]
     full_ocr: str
-    keywords: List[str] = Field(default_factory=list, max_items=20)
+    keywords: List[str] = Field(default_factory=list, max_items=25)
     accent_colors: list[str]
     themes: list[str]
     moods: list[str]

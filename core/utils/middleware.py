@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["100 per day", "30 per hour"]
+    default_limits=["3 per second"]
 )
 
 def get_ip():

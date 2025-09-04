@@ -8,7 +8,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 - [ ] Improve querying
     - Include color parsing
-    - Include time parsing
 - [ ] Improve digest
     - AI 
         - Summary
@@ -356,6 +355,7 @@ sudo certbot renew --dry-run
 * Check status:
 
   ```bash
+
   sudo systemctl status forgor-api
   ```
 * Show logs (last 100 lines, live):
@@ -366,6 +366,7 @@ sudo certbot renew --dry-run
 * Restart service:
 
   ```bash
+  sudo systemctl daemon-reexec && sudo systemctl daemon-reload
   sudo systemctl restart forgor-api.service
   ```
 
