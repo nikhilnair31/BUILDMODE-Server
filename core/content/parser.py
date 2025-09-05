@@ -102,11 +102,8 @@ def sanitize_tsquery(user_input: str) -> str:
 
     return " ".join(out)
 def extract_time_filter(query_text: str):
-    """
-    Extract natural language time expressions from query_text.
-    Returns (cleaned_query, (start, end)) or (cleaned_query, None).
-    """
-    matches = timefhuman(query_text, config=config)
+    safe_text = re.sub(r'[^0-9a-zA-Z\s]', ' ', query_text)
+    matches = timefhuman(safe_text, config=config)
 
     if not matches:
         return query_text, None

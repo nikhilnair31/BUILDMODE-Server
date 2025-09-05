@@ -6,29 +6,14 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Improve querying
-    - Include color parsing
+- [ ] Fix querying
+    - Fix including booleans
+    - Add color parsing?
 - [ ] Improve digest
-    - AI 
+    - [ ] Check why they won't work
+    - [ ] Format:
         - Summary
-        - What to build?
-        - Suggested collections
-    - Stats
-        - Saves this period
-        - Change vs last
-        - Total
-        - Save streak (days)
-    - Spikes
-    - Trends
-    - Sources
-    - Engagements metrics
-    - Time
-    - Colors
-        - Frequency
-        - Random from past
-    - Tags
-        - Frequency
-    - A random post from back in time
+        - Consolidated pictures
 - [ ] Create nudges system
 
 ## Setup

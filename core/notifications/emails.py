@@ -1,3 +1,5 @@
+# emails.py
+
 from email.mime.image import MIMEImage
 import os
 import logging
@@ -49,7 +51,6 @@ def send_email(user_email: str, subject: str, html_body: str, text_body: str = N
             text_body = re.sub(r"<[^>]+>", "", html_body)
         alt.attach(MIMEText(text_body, "plain", "utf-8"))
         alt.attach(MIMEText(html_body, "html", "utf-8"))
-        msg.attach(alt)
         msg.attach(alt)
 
         # Inline images

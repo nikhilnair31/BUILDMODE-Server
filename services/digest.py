@@ -69,8 +69,8 @@ def get_ai_summary(now_rows: List[DataEntry], period: str):
     print(f"usr_prompt\n{usr_prompt}")
     out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
     out_html = markdown.markdown(out)
-    print(f"out\n{out}")
-    return ("[AI_SUMMARY]", out)
+    print(f"out_html\n{out_html}")
+    return ("[AI_SUMMARY]", out_html)
 
 def get_img_mosaic(now_rows: List[DataEntry]):
     images = [row.file_path for row in now_rows]
@@ -108,6 +108,14 @@ def generate_digest(user_id: int, period="weekly"):
     # Replace placeholders
     for key, val in replacements.items():
         html_template = html_template.replace(key, val)
+
+    # Replace date range
+    start_str = datetime.fromtimestamp(period_start, tz=UTC).strftime("%Y-%m-%d")
+    end_str   = datetime.fromtimestamp(period_end, tz=UTC).strftime("%Y-%m-%d")
+    html_template = html_template.replace(
+        "THIS WEEK: YYYY-MM-DD → YYYY-MM-DD",
+        f"THIS {period.upper()}: {start_str} → {end_str}"
+    )
     
     return html_template, inline_images
 

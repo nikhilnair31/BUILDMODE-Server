@@ -113,10 +113,10 @@ def query(current_user):
     query_wo_time_text, time_filter = extract_time_filter(query_text)
     logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
 
-    cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
-    logger.info(f"cleaned_query_text: {cleaned_query_text}")
+    # cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
+    # logger.info(f"cleaned_query_text: {cleaned_query_text}")
 
-    vec_query = cached_call_vec_api(cleaned_query_text) if cleaned_query_text else None
+    vec_query = cached_call_vec_api(query_wo_time_text) if query_wo_time_text else None
 
     sql = text("""
         WITH bounds AS (
@@ -135,7 +135,7 @@ def query(current_user):
                 TO_TIMESTAMP(timestamp) AS converted_date,
                 CASE 
                     WHEN :fts_query <> '' 
-                    THEN ts_rank(to_tsvector('english', tags), to_tsquery('english', :fts_query))
+                    THEN ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query))
                     ELSE 1
                 END AS text_rank,
                 CASE 
@@ -177,14 +177,14 @@ def query(current_user):
     """)
     params = {
         "userid": userid,
-        "fts_query": cleaned_query_text,
-        "trgm_query": cleaned_query_text,
+        "fts_query": query_wo_time_text,
+        "trgm_query": query_wo_time_text,
         "vec_query": vec_query,
         "start_ts": time_filter[0] if time_filter else None,
         "end_ts": time_filter[1] if time_filter else None
     }
 
-    result = session.execute(sql, params).fetchmany(100)
+    result = session.execute(sql, params).fetchmany(1000)
     logger.info(f"len result: {len(result)}\n")
     logger.info(f"result\n")
     for i, row in enumerate(result):
@@ -240,10 +240,10 @@ def check_text(current_user):
     query_wo_time_text, time_filter = extract_time_filter(check_text)
     logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
 
-    cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
-    logger.info(f"cleaned_query_text: {cleaned_query_text}")
+    # cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
+    # logger.info(f"cleaned_query_text: {cleaned_query_text}")
 
-    vec_query = cached_call_vec_api(cleaned_query_text) if cleaned_query_text else None
+    vec_query = cached_call_vec_api(query_wo_time_text) if query_wo_time_text else None
 
     sql = text("""
         WITH bounds AS (
@@ -262,7 +262,7 @@ def check_text(current_user):
                 TO_TIMESTAMP(timestamp) AS converted_date,
                 CASE 
                     WHEN :fts_query <> '' 
-                    THEN ts_rank(to_tsvector('english', tags), to_tsquery('english', :fts_query))
+                    THEN ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query))
                     ELSE 1
                 END AS text_rank,
                 CASE 
@@ -304,21 +304,22 @@ def check_text(current_user):
     """)
     params = {
         "userid": userid,
-        "fts_query": cleaned_query_text,
-        "trgm_query": cleaned_query_text,
+        "fts_query": query_wo_time_text,
+        "trgm_query": query_wo_time_text,
         "vec_query": vec_query,
         "start_ts": time_filter[0] if time_filter else None,
         "end_ts": time_filter[1] if time_filter else None
     }
 
-    result = session.execute(sql, params).fetchall()
+    result = session.execute(sql, params).fetchmany(10)
     logger.info(f"len result: {len(result)}\n")
 
     result_json = {
         "results": [
             {
                 "file_name": os.path.basename(r[0]),
-                "thumbnail_name": os.path.basename(r[1]) if r[1] else None
+                "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
+                "tags": r[2],
             }
             for r in result
         ]
