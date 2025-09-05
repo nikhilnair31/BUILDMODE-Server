@@ -9,11 +9,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 - [ ] Fix querying
     - Fix including booleans
     - Add color parsing?
-- [ ] Improve digest
-    - [ ] Check why they won't work
-    - [ ] Format:
-        - Summary
-        - Consolidated pictures
 - [ ] Create nudges system
 
 ## Setup

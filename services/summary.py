@@ -99,6 +99,11 @@ def generate_summary(user_id: int, period="weekly"):
     replacements[k] = v
     inline_images.update(imgs)
 
+    # Range
+    start_str = datetime.fromtimestamp(period_start, tz=UTC).strftime("%Y-%m-%d")
+    end_str   = datetime.fromtimestamp(period_end, tz=UTC).strftime("%Y-%m-%d")
+    replacements["TIME_RANGE"] = f"THIS {period.upper()}: {start_str} → {end_str}"
+
     # Load template
     with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
         html_template = f.read()
@@ -106,14 +111,6 @@ def generate_summary(user_id: int, period="weekly"):
     # Replace placeholders
     for key, val in replacements.items():
         html_template = html_template.replace(key, val)
-
-    # Replace date range
-    start_str = datetime.fromtimestamp(period_start, tz=UTC).strftime("%Y-%m-%d")
-    end_str   = datetime.fromtimestamp(period_end, tz=UTC).strftime("%Y-%m-%d")
-    html_template = html_template.replace(
-        "THIS WEEK: YYYY-MM-DD → YYYY-MM-DD",
-        f"THIS {period.upper()}: {start_str} → {end_str}"
-    )
     
     return html_template, inline_images
 
