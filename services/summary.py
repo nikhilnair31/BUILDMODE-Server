@@ -1,22 +1,20 @@
-# digest.py
+# summary.py
 
-import html, json, random, re, logging, collections
+import logging, markdown
 from datetime import datetime, UTC, timedelta
-import markdown
 from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
-from typing import Dict, Any, List, Tuple, Optional
-from sqlalchemy import func, and_, create_engine, desc
+from typing import List, Tuple
+from sqlalchemy import func, and_, create_engine
 from core.content.images import create_pinterest_mosaic
-from core.database.database import get_db_session
 from core.database.models import DataEntry, User
 from core.notifications.emails import is_valid_email, send_email
 from core.utils.config import Config
 from core.ai.ai import call_gemini_with_text
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR.parent / "templates" / "digest_template.html"
+TEMPLATE_PATH = BASE_DIR.parent / "templates" / "summary_template.html"
 
 # ---------- Helper Functions ----------
 
@@ -79,9 +77,9 @@ def get_img_mosaic(now_rows: List[DataEntry]):
     html_img_tag = f'<img src="cid:{cid}" alt="Mosaic" style="max-width:100%;">'
     return ("[IMAGE_PLACEHOLDER]", html_img_tag, {cid: img_bytes})
 
-# ---------- Digest Generator ----------
+# ---------- Summary Generator ----------
 
-def generate_digest(user_id: int, period="weekly"):
+def generate_summary(user_id: int, period="weekly"):
     # Get time range
     period_start, period_end, prev_start, prev_end = epoch_range(period)
 
@@ -144,8 +142,8 @@ if __name__ == "__main__":
             
             freq_name = user.frequency.name if user.frequency else "unspecified"
 
-            # decide if digest is due
-            last_sent = user.last_digest_sent or 0
+            # decide if summary is due
+            last_sent = user.last_summary_sent or 0
             due = False
 
             if freq_name == "daily":
@@ -156,29 +154,29 @@ if __name__ == "__main__":
                 due = now - last_sent >= 2592000 # ~30 days
 
             if due:
-                print(f"Sending digest to {user.username} ({user.email}) [{freq_name}]")
+                print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
-                digest_content, inline_images = generate_digest(user_id=user.id, period=freq_name)
+                summary_content, inline_images = generate_summary(user_id=user.id, period=freq_name)
                 
-                if digest_content:
+                if summary_content:
                     send_email(
                         user_email = user.email,
-                        subject = f"Your {freq_name} FORGOR Digest",
-                        html_body = digest_content,
+                        subject = f"Your {freq_name} FORGOR Summary",
+                        html_body = summary_content,
                         inline_images=inline_images
                     )
                 else:
-                    logger.warning(f"No digest content generated for {user.username}")
+                    logger.warning(f"No summary content generated for {user.username}")
 
                 # update last sent timestamp
-                user.last_digest_sent = now
+                user.last_summary_sent = now
                 session.add(user)
             else:
-                print(f"Digest not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
+                print(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
 
         session.commit()
         session.close()
             
     except Exception as e:
-        print(f"Error creating digest: {e}")
+        print(f"Error creating summary: {e}")
         session.close()

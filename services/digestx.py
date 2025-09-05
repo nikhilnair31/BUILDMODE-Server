@@ -530,7 +530,7 @@ if __name__ == "__main__":
             freq_name = user.frequency.name if user.frequency else "unspecified"
 
             # decide if digest is due
-            last_sent = user.last_digest_sent or 0
+            last_sent = user.last_summary_sent or 0
             due = False
 
             if freq_name == "weekly":
@@ -545,13 +545,13 @@ if __name__ == "__main__":
                 # print(f"digest_content\n{digest_content[:100]}")
                 if digest_content:
                     send_email(user.email, f"Your {freq_name} FORGOR Digest", digest_content)
-                    user.last_digest_sent = now
+                    user.last_summary_sent = now
                     session.add(user)
                 else:
                     logger.warning(f"No digest content generated for {user.username}")
 
                 # update last sent timestamp
-                user.last_digest_sent = now
+                user.last_summary_sent = now
                 session.add(user)
 
         session.commit()

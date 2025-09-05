@@ -66,8 +66,8 @@ class User(Base):
     created_at = Column(Integer)
     updated_at = Column(Integer)
     tier_id = Column(Integer, ForeignKey('tiers.id'), default=1)
-    digest_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
-    last_digest_sent = Column(Integer, nullable=True)
+    summary_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
+    last_summary_sent = Column(Integer, nullable=True)
 
     tier = relationship("Tier")
     frequency = relationship("Frequency")

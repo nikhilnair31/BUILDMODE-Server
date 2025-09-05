@@ -122,47 +122,6 @@ def login():
     finally:
         session.close()
 
-@auth_bp.route('/digest_frequency', methods=['POST'])
-@limiter.limit("1 per second")
-@token_required
-def digest_frequency(current_user):
-    logger.info(f"Updating digest frequency for: {current_user.id}")
-
-    session = get_db_session()
-    try:
-        user = session.query(User).get(current_user.id)
-        if not user:
-            e = f"User ID {current_user.id} not found"
-            logger.error(e)
-            return error_response(e, 404)
-
-        # Expect JSON body like: {"frequency": "daily"} or {"frequency": "weekly"}
-        data = request.get_json()
-        if not data or "frequency" not in data:
-            return error_response("Missing 'frequency' field", 400)
-
-        freq_name = data["frequency"].strip().lower()
-
-        # Look up frequency in DB
-        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
-        if not freq:
-            return error_response(f"Invalid frequency '{freq_name}'", 400)
-
-        # Update user
-        user.digest_frequency_id = freq.id
-        session.commit()
-
-        logger.info(f"User {user.id} digest frequency updated to {freq.name}")
-        return {"message": f"Digest frequency updated to {freq.name}"}, 200
-
-    except Exception as e:
-        logger.error(f"Error updating digest frequency for {current_user.id}: {e}")
-        session.rollback()
-        return error_response("Failed to update digest frequency", 500)
-
-    finally:
-        session.close()
-
 @auth_bp.route('/account_delete', methods=['DELETE'])
 @token_required
 def account_delete(current_user):
@@ -212,5 +171,46 @@ def account_delete(current_user):
         session.rollback()
         return error_response("Failed to delete account", 500)
     
+    finally:
+        session.close()
+
+@auth_bp.route('/summary_frequency', methods=['POST'])
+@limiter.limit("1 per second")
+@token_required
+def summary_frequency(current_user):
+    logger.info(f"Updating summary frequency for: {current_user.id}")
+
+    session = get_db_session()
+    try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        # Expect JSON body like: {"frequency": "daily"} or {"frequency": "weekly"}
+        data = request.get_json()
+        if not data or "frequency" not in data:
+            return error_response("Missing 'frequency' field", 400)
+
+        freq_name = data["frequency"].strip().lower()
+
+        # Look up frequency in DB
+        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
+        if not freq:
+            return error_response(f"Invalid frequency '{freq_name}'", 400)
+
+        # Update user
+        user.summary_frequency_id = freq.id
+        session.commit()
+
+        logger.info(f"User {user.id} summary frequency updated to {freq.name}")
+        return {"message": f"Summary frequency updated to {freq.name}"}, 200
+
+    except Exception as e:
+        logger.error(f"Error updating summary frequency for {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to update summary frequency", 500)
+
     finally:
         session.close()
