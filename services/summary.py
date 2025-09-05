@@ -102,7 +102,8 @@ def generate_summary(user_id: int, period="weekly"):
     # Range
     start_str = datetime.fromtimestamp(period_start, tz=UTC).strftime("%Y-%m-%d")
     end_str   = datetime.fromtimestamp(period_end, tz=UTC).strftime("%Y-%m-%d")
-    replacements["TIME_RANGE"] = f"THIS {period.upper()}: {start_str} → {end_str}"
+    replacements["TIME_RANGE_TITLE"] = f"{period.upper()} SUMMARY "
+    replacements["TIME_RANGE_SUB"] = f"{start_str} → {end_str}"
 
     # Load template
     with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
