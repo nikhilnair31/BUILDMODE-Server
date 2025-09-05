@@ -2,6 +2,7 @@
 
 import os
 import logging
+from exa_py import Exa
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -102,4 +103,34 @@ def get_gemini_embedding(text, task_type):
             
     except Exception as e:
         print(f"Error getting Gemini embedding: {e}")
+        return []
+
+# ---------------------------------- SEARCH ----------------------------------
+
+def get_exa_search(text):
+    print(f"Getting Exa AI search...\n")
+    
+    try:
+        exa = Exa(
+            api_key=os.environ.get("EXA_AI_API_KEY")
+        )
+        result = exa.search_and_contents(
+            text,
+            type = "auto",
+            num_results = 3,
+            start_published_date = "2025-08-29T04:00:00.000Z",
+            end_published_date = "2025-09-06T03:59:59.999Z",
+            livecrawl_timeout = 1000,
+            text = {
+                "max_characters": 512
+            },
+            context = True,
+            summary = True
+        )
+
+        out = result.results
+        return out
+            
+    except Exception as e:
+        print(f"Error getting Exa AI search: {e}")
         return []

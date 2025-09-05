@@ -68,9 +68,10 @@ class User(Base):
     tier_id = Column(Integer, ForeignKey('tiers.id'), default=1)
     summary_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
     last_summary_sent = Column(Integer, nullable=True)
+    last_digest_sent = Column(Integer, nullable=True)
 
     tier = relationship("Tier")
-    frequency = relationship("Frequency")
+    summary_frequency = relationship("Frequency", foreign_keys=[summary_frequency_id])
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

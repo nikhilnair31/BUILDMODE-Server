@@ -115,11 +115,59 @@ def generate_summary(user_id: int, period="weekly"):
     
     return html_template, inline_images
 
+def run_once():
+    now = int(datetime.now(UTC).timestamp())
+    
+    all_users = session.query(User).all()
+
+    for user in all_users:
+        # check email validity
+        if not is_valid_email(user.email):
+            print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
+            continue
+        
+        freq_name = user.summary_frequency_id.name if user.summary_frequency_id else "unspecified"
+
+        # decide if summary is due
+        last_sent = user.last_summary_sent or 0
+        due = False
+
+        if freq_name == "daily":
+            due = now - last_sent >= 86400  # 1 day
+        elif freq_name == "weekly":
+            due = now - last_sent >= 604800  # 7 days
+        elif freq_name == "monthly":
+            due = now - last_sent >= 2592000 # ~30 days
+
+        if due:
+            print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
+
+            summary_content, inline_images = generate_summary(user_id=user.id, period=freq_name)
+            
+            if summary_content:
+                send_email(
+                    user_email = user.email,
+                    subject = f"Your FORGOR Summary",
+                    html_body = summary_content,
+                    inline_images=inline_images
+                )
+            else:
+                logger.warning(f"No summary content generated for {user.username}")
+
+            # update last sent timestamp
+            user.last_summary_sent = now
+            session.add(user)
+        else:
+            print(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
+
+    session.commit()
+    session.close()
+
 # ---------- Run directly ----------
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
+logger = logging.getLogger("summary")
 
 engine = create_engine(Config.ENGINE_URL)
 Session = sessionmaker(bind=engine)
@@ -128,53 +176,7 @@ if __name__ == "__main__":
     session = Session()
 
     try:
-        now = int(datetime.now(UTC).timestamp())
-        
-        all_users = session.query(User).all()
-
-        for user in all_users:
-            # check email validity
-            if not is_valid_email(user.email):
-                print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
-                continue
-            
-            freq_name = user.frequency.name if user.frequency else "unspecified"
-
-            # decide if summary is due
-            last_sent = user.last_summary_sent or 0
-            due = False
-
-            if freq_name == "daily":
-                due = now - last_sent >= 86400  # 1 day
-            elif freq_name == "weekly":
-                due = now - last_sent >= 604800  # 7 days
-            elif freq_name == "monthly":
-                due = now - last_sent >= 2592000 # ~30 days
-
-            if due:
-                print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
-
-                summary_content, inline_images = generate_summary(user_id=user.id, period=freq_name)
-                
-                if summary_content:
-                    send_email(
-                        user_email = user.email,
-                        subject = f"Your {freq_name} FORGOR Summary",
-                        html_body = summary_content,
-                        inline_images=inline_images
-                    )
-                else:
-                    logger.warning(f"No summary content generated for {user.username}")
-
-                # update last sent timestamp
-                user.last_summary_sent = now
-                session.add(user)
-            else:
-                print(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
-
-        session.commit()
-        session.close()
-            
+        run_once()
     except Exception as e:
         print(f"Error creating summary: {e}")
         session.close()
