@@ -7,7 +7,7 @@ from functools import lru_cache
 from flask import request, jsonify
 from core.utils.config import Config
 from core.database.database import get_db_session
-from core.database.models import User, DataEntry
+from core.database.models import InteractionEntry, User, DataEntry
 from core.ai.ai import call_vec_api
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required
@@ -128,6 +128,7 @@ def query(current_user):
         ),
         scored AS (
             SELECT 
+                id,
                 file_path,
                 thumbnail_path,
                 tags,
@@ -193,9 +194,10 @@ def query(current_user):
     result_json = {
         "results": [
             {
-                "file_name": os.path.basename(r[0]),
-                "thumbnail_name": os.path.basename(r[1]) if r[1] else None,
-                "tags": r[2]
+                "file_id": r[0],
+                "file_name": os.path.basename(r[1]),
+                "thumbnail_name": os.path.basename(r[2]) if r[2] else None,
+                "tags": r[3]
             }
             for r in result
         ]
@@ -327,3 +329,56 @@ def check_text(current_user):
 
     query_cache[cache_key] = result_json
     return jsonify(result_json)
+
+# ---------------------------------- INTERRACTION ------------------------------------
+
+@query_bp.route('/insert-post-interaction', methods=['PUT'])
+# @limiter.limit("1 per second")
+@token_required
+def insert_post_interaction(current_user):
+    logger.info(f"Inserting for: {current_user.id}")
+
+    session = get_db_session()
+    try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        data = request.get_json(silent=True) or {}
+        logger.info(f"data: {data}")
+        try:
+            file_id = int(data.get("fileId", 0))
+        except (TypeError, ValueError):
+            return error_response("Invalid or missing 'fileId'", 400)
+
+        query_text = (data.get("query") or "").strip()
+        if not query_text:
+            return error_response("Missing 'query' field", 400)
+
+        # Ensure referenced data entry exists
+        data_entry = session.query(DataEntry).get(file_id)
+        if not data_entry:
+            return error_response(f"Data entry {file_id} not found", 404)
+
+        # Create new interaction
+        interaction = InteractionEntry(
+            user_id=user.id,
+            data_id=data_entry.id,
+            user_query=query_text,
+        )
+        session.add(interaction)
+        session.commit()
+
+        logger.info(f"Inserted interaction {interaction.id} for user {user.id}")
+        return {"message": "Interaction inserted", "id": interaction.id}, 200
+
+    except Exception as e:
+        logger.error(f"Error inserting interaction for {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to inserting interaction", 500)
+
+    finally:
+        session.close()
+
