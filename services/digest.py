@@ -73,6 +73,7 @@ def generate_digest(user_id: int, unsubscribe_url: str):
 
     # Collect replacements
     replacements = {}
+    inline_images = {}
 
     # AI summary
     search_res = get_ai_search(now_rows)
@@ -80,6 +81,10 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     # User URLs
     k, v = build_user_urls(search_res)
     replacements[k] = v
+
+    # add icon
+    with open("assets/icon.png", "rb") as f:
+        inline_images["icon"] = f.read()
     
     # Unsub
     replacements["[UNSUB_URL]"] = unsubscribe_url
@@ -92,7 +97,7 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     for key, val in replacements.items():
         html_template = html_template.replace(key, val)
     
-    return html_template
+    return html_template, inline_images
 
 def run_once():
     # Get all users that have digest email enabled
@@ -104,7 +109,7 @@ def run_once():
             continue
         
         # check email enabled
-        if not user.digest_email_enabled == False:
+        if not user.digest_email_enabled:
             logger.info(f"Skipping user {user.id} cause they have digest emails disabled")
             continue
 
@@ -125,18 +130,20 @@ def run_once():
         due = False
         due = in_window and (last_sent_dt.date() < local_now.date())
 
-        # due = True
+        due = True
         if due:
             logger.info(f"Sending digest to {user.username} ({user.email})")
 
             token = make_unsubscribe_token(user.id, user.email, "digest")
             unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
-            digest_html = generate_digest(user.id, unsubscribe_url)
+            digest_html, inline_images = generate_digest(user.id, unsubscribe_url)
+            
             if digest_html:
                 send_email(
                     user_email = user.email,
                     subject = f"Your FORGOR Digest",
                     html_body = digest_html,
+                    inline_images=inline_images,
                     unsubscribe_url = unsubscribe_url
                 )
             else:

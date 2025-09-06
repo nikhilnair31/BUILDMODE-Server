@@ -44,7 +44,9 @@ def get_all_data(user_id, period_start, period_end):
 
 def get_ai_summary(now_rows: List[DataEntry], period: str):
     sys_prompt = f"""
-    Generate a summary based on the user's saved posts in the past {period} period.
+    Generate a short and impactful summary based on the user's saved posts in the past {period} period.
+    Provide insights to the user based on content they've saved.
+    Focus on overall concepts and something out of the box.
     """
     # logger.info(f"sys_prompt\n{sys_prompt}")
     
@@ -101,10 +103,25 @@ def generate_summary(user_id: int, unsubscribe_url: str, period="weekly"):
     inline_images.update(imgs)
 
     # Range
-    start_str = datetime.fromtimestamp(period_start, tz=UTC).strftime("%Y-%m-%d")
-    end_str   = datetime.fromtimestamp(period_end, tz=UTC).strftime("%Y-%m-%d")
-    replacements["TIME_RANGE_TITLE"] = f"{period.upper()} SUMMARY "
-    replacements["TIME_RANGE_SUB"] = f"{start_str} → {end_str}"
+    start_dt = datetime.fromtimestamp(period_start, tz=UTC)
+    if period == "daily":
+        period_title = "DAILY SUMMARY"
+        sub = f"Day of {start_dt.strftime('%Y-%m-%d')}"
+    elif period == "weekly":
+        period_title = "WEEKLY SUMMARY"
+        sub = f"Week of {start_dt.strftime('%Y-%m-%d')}"
+    elif period == "monthly":
+        period_title = "MONTHLY SUMMARY"
+        sub = f"Month of {start_dt.strftime('%Y-%m-%d')}"
+    else:
+        period_title = f"{period.upper()} SUMMARY"
+        sub = f"{start_dt.strftime('%Y-%m-%d')}"
+    replacements["[TIME_RANGE_TITLE]"] = period_title
+    replacements["[TIME_RANGE_SUB]"] = sub
+
+    # add icon
+    with open("assets/icon.png", "rb") as f:
+        inline_images["icon"] = f.read()
     
     # Unsub
     replacements["[UNSUB_URL]"] = unsubscribe_url
@@ -151,7 +168,7 @@ def run_once():
             due = now - last_sent >= 2592000 # ~30 days
         logger.info(f"due: {due}")
 
-        due = True
+        # due = True
         if due:
             logger.info(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
@@ -164,7 +181,8 @@ def run_once():
                     user_email = user.email,
                     subject = f"Your FORGOR Summary",
                     html_body = summary_content,
-                    inline_images=inline_images
+                    inline_images=inline_images,
+                    unsubscribe_url = unsubscribe_url
                 )
             else:
                 logger.warning(f"No summary content generated for {user.username}")

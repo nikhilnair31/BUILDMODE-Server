@@ -57,7 +57,7 @@ def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
             api_key=os.environ.get("GEMINI_API_KEY"),
         )
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents=usr_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=sys_prompt,
@@ -117,15 +117,15 @@ def get_exa_search(text):
         result = exa.search_and_contents(
             text,
             type = "auto",
-            num_results = 3,
-            start_published_date = "2025-08-29T04:00:00.000Z",
-            end_published_date = "2025-09-06T03:59:59.999Z",
-            livecrawl_timeout = 1000,
-            text = {
-                "max_characters": 512
-            },
-            context = True,
-            summary = True
+            num_results = 5,
+            # start_published_date = "2025-08-29T04:00:00.000Z",
+            # end_published_date = "2025-09-06T03:59:59.999Z",
+            # livecrawl_timeout = 1000,
+            # text = {
+            #     "max_characters": 512
+            # },
+            # context = True,
+            # summary = True
         )
 
         out = result.results
