@@ -22,7 +22,7 @@ APP_SECRET          = os.getenv("APP_SECRET_KEY")
 FROM_EMAIL          = os.getenv("FROM_EMAIL")
 EMAIL_DISPLAY_NAME  = os.getenv("EMAIL_DISPLAY_NAME")
 
-EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_REGEX         = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 assert SMTP_USER and SMTP_PASS, "Missing SMTP2GO_SMTP_USER/SMTP2GO_SMTP_PASS"
 

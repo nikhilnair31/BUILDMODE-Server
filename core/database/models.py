@@ -18,6 +18,8 @@ from sqlalchemy import (
 
 Base = declarative_base()
 
+# ---------------------------------- HELPERS ------------------------------------
+
 class ProcessingStatus(str):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -34,6 +36,8 @@ class Frequency(Base):
     __tablename__ = 'frequency'
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+
+# ---------------------------------- POST DATA ------------------------------------
 
 class StagingEntry(Base):
     __tablename__ = 'staging'
@@ -56,16 +60,24 @@ class DataEntry(Base):
     tags_vector = Column(Vector(768))
     timestamp = Column(Integer)
 
-class InteractionEntry(Base):
-    __tablename__ = 'interactions'
+# ---------------------------------- TRACKING ------------------------------------
+
+class PostInteraction(Base):
+    __tablename__ = 'post_interactions'
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     data_id = Column(Integer, ForeignKey('data.id'))
     user_query = Column(String)
 
-    user = relationship("User")
-    data = relationship("DataEntry")
+class LinkInteraction(Base):
+    __tablename__ = 'link_interactions'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    digest_url = Column(String)
+
+# ---------------------------------- USERS ------------------------------------
 
 class User(Base):
     __tablename__ = 'users'

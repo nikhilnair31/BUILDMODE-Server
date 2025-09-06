@@ -191,11 +191,11 @@ def build_user_urls(search_results, inline_images: dict) -> str:
 
         # Build HTML card for each link
         block = f"""
-        <li style="margin-bottom:15px; list-style:none;">
+        <div style="margin-bottom:16px; list-style:none;">
             <a href="{url}" style="color:#deff96; font-weight:bold; font-size:15px; text-decoration:none;">{title}</a><br>
             <span style="color:#bbb; font-size:13px;">{desc}</span><br>
-            {f'<img src="cid:{cid}" alt="" style="max-width:100%; margin-top:5px; border-radius:4px;">' if cid else ""}
-        </li>
+            {f'<img src="cid:{cid}" alt="" style="max-width:100%; margin-top:8px;">' if cid else ""}
+        </div>
         """
         items.append(block)
     
