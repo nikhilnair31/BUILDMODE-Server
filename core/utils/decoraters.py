@@ -1,8 +1,6 @@
 # decoraters.py
 
-import jwt
-import time
-import logging
+import jwt, time, logging
 from flask import request
 from functools import wraps
 from core.utils.config import Config

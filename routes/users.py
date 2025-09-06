@@ -197,38 +197,3 @@ def digest_enabled(current_user):
 
     finally:
         session.close()
-
-@users_bp.route('/unsubscribe', methods=['PUT'])
-def unsubscribe():
-    token = request.args.get('t')
-    if not token:
-        return error_response("Missing unsubscribe token", 400)
-
-    payload = verify_unsubscribe_token(token)
-    if not payload:
-        return error_response("Invalid or expired unsubscribe token", 400)
-
-    uid = payload.get("uid")
-    email = payload.get("e")
-    source = payload.get("s")
-
-    session = get_db_session()
-    try:
-        user = session.query(User).filter_by(id=uid, email=email).first()
-        if not user:
-            return error_response("User not found", 404)
-
-        if source == 'digest':
-            user.email_unsubscribed = True
-        elif source == 'summary':
-            user.email_unsubscribed = True
-        else:
-            return error_response("Source isn't normal", 400)
-        
-        session.add(user)
-        session.commit()
-
-        logger.info(f"User {user.id} ({user.email}) unsubscribed from emails.")
-        return jsonify({"message": "You have been unsubscribed from future emails."}), 200
-    finally:
-        session.close()

@@ -1,18 +1,13 @@
 # emails.py
 
-from email.mime.image import MIMEImage
-import os
-import logging
-import base64
-import re
-import smtplib
+import os, logging, re, smtplib, traceback
 from io import BytesIO
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
-from email.mime.base import MIMEBase
-from email import encoders
-import traceback
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,19 +37,6 @@ def verify_unsubscribe_token(token: str, max_age: int = 60*60*24*30):
         return s.loads(token, max_age=max_age)
     except (SignatureExpired, BadSignature):
         return None
-
-def _append_unsubscribe(html_body: str, text_body: str, unsubscribe_url: str):
-    if unsubscribe_url:
-        # plain text
-        text_body = (text_body or "") + f"\n\nTo unsubscribe: {unsubscribe_url}"
-        # html - small footer link
-        unsubscribe_html = (
-            '<p style="font-size:12px;color:#888;margin-top:20px;">'
-            f'<a href="{unsubscribe_url}" style="color:#deff96;">Unsubscribe</a>'
-            '</p>'
-        )
-        html_body = html_body + unsubscribe_html
-    return html_body, text_body
 
 # ---------------------------------- HELPERS ------------------------------------
 

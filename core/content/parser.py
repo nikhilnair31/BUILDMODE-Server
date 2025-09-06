@@ -1,12 +1,8 @@
 # parser.py
 
-import re
-import pytz
-import logging
-import parsedatetime
+import re, pytz, logging
 from timefhuman import timefhuman, tfhConfig
-from datetime import date, datetime, timedelta
-from dateutil import parser as dateutil_parser
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
