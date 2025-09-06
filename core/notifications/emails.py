@@ -1,5 +1,6 @@
 # emails.py
 
+from email.utils import formataddr
 import os, logging, re, smtplib, traceback
 from io import BytesIO
 from email import encoders
@@ -13,13 +14,13 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-SMTP_SERVER = "mail.smtp2go.com"
-SMTP_PORT   = int(os.getenv("SMTP_PORT", "2525"))
-SMTP_USER   = os.getenv("SMTP2GO_SMTP_USER")
-SMTP_PASS   = os.getenv("SMTP2GO_SMTP_PASS")
-APP_SECRET  = os.getenv("APP_SECRET_KEY")
-
-FROM_EMAIL  = "nikhil@forgor.space"
+SMTP_SERVER         = os.getenv("SMTP_SERVER")
+SMTP_PORT           = int(os.getenv("SMTP_PORT", "2525"))
+SMTP_USER           = os.getenv("SMTP2GO_SMTP_USER")
+SMTP_PASS           = os.getenv("SMTP2GO_SMTP_PASS")
+APP_SECRET          = os.getenv("APP_SECRET_KEY")
+FROM_EMAIL          = os.getenv("FROM_EMAIL")
+EMAIL_DISPLAY_NAME  = os.getenv("EMAIL_DISPLAY_NAME")
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -54,7 +55,7 @@ def send_email(user_email: str, subject: str, html_body: str, text_body: str = N
     try:
         # Outer "related" container for HTML + inline images
         msg = MIMEMultipart("related")
-        msg["From"] = FROM_EMAIL
+        msg["From"] = formataddr((EMAIL_DISPLAY_NAME, FROM_EMAIL))
         msg["To"] = user_email
         msg["Subject"] = subject
 

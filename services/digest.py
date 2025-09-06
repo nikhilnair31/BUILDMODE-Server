@@ -1,18 +1,15 @@
 # digest.py
 
-import ast
+import ast, json, logging, re, requests, yaml
+from linkpreview import link_preview
 from collections import Counter, defaultdict
-import json
-import logging
 from datetime import datetime, time, UTC, timedelta, timezone
 from pathlib import Path
-import re
 from typing import List
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from sqlalchemy import and_, create_engine
 from sqlalchemy.orm import sessionmaker
-import yaml
 from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.models import DataEntry, User
 from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
@@ -165,15 +162,42 @@ def get_ai_search(now_rows: List[DataEntry]):
 
     return search_result_out
 
-def build_user_urls(search_results) -> str:
+def build_user_urls(search_results, inline_images: dict) -> str:
     if not search_results:
         return "<li>No links saved recently</li>"
 
     items = []
-    for res in search_results:
+    for idx, res in enumerate(search_results):
         url = res.url
         title = res.title
-        items.append(f'<li><a href="{url}" style="color:#deff96;">{title}</a></li>')
+
+        try:
+            preview = link_preview(url)
+            desc = preview.description or ""
+            img_url  = preview.absolute_image or ""
+        except Exception:
+            desc = ""
+            img_url  = ""
+
+        cid = None
+        if img_url:
+            try:
+                r = requests.get(img_url, timeout=5)
+                if r.ok and r.content:
+                    cid = f"link{idx}"
+                    inline_images[cid] = r.content
+            except Exception:
+                pass
+
+        # Build HTML card for each link
+        block = f"""
+        <li style="margin-bottom:15px; list-style:none;">
+            <a href="{url}" style="color:#deff96; font-weight:bold; font-size:15px; text-decoration:none;">{title}</a><br>
+            <span style="color:#bbb; font-size:13px;">{desc}</span><br>
+            {f'<img src="cid:{cid}" alt="" style="max-width:100%; margin-top:5px; border-radius:4px;">' if cid else ""}
+        </li>
+        """
+        items.append(block)
     
     return ("[USER_URLS]", "\n".join(items))
 
@@ -189,7 +213,7 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     search_res = get_ai_search(now_rows)
 
     # User URLs
-    k, v = build_user_urls(search_res)
+    k, v = build_user_urls(search_res, inline_images)
     replacements[k] = v
 
     # add icon

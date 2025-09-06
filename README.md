@@ -7,6 +7,8 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 ## To-Do
 
 - [ ] Track digest link opening
+- [ ] Try to combine link tracking with unsub logic
+- [ ] Add thumbnails for the digest suggestions
 - [ ] Think of better system to track user interest
     - Maybe a graph
     - Track recency for decay and frequency for interest signals

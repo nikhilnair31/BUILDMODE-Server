@@ -117,7 +117,7 @@ def get_exa_search(text):
         result = exa.search_and_contents(
             text,
             type = "auto",
-            num_results = 5,
+            num_results = 25,
             # start_published_date = "2025-08-29T04:00:00.000Z",
             # end_published_date = "2025-09-06T03:59:59.999Z",
             # livecrawl_timeout = 1000,
