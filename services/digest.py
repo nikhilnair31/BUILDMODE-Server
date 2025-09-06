@@ -15,7 +15,7 @@ from core.notifications.emails import is_valid_email, make_unsubscribe_token, se
 from core.utils.config import Config
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR.parent / "templates" / "summary_digest.html"
+TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_digest.html"
 
 def get_all_data(user_id):
     # Current period rows (full)

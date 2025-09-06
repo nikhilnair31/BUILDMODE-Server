@@ -14,7 +14,7 @@ from core.utils.config import Config
 from core.ai.ai import call_gemini_with_text
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR.parent / "templates" / "summary_template.html"
+TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_summary.html"
 
 # ---------- Helper Functions ----------
 
