@@ -6,16 +6,13 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Improve digest prompt for better recommendations
-- [ ] Improve summary prompt for more digestible information
-- [ ] Improve digest & summary styling (use Limitless/Vapi/Claude as examples)
-- [ ] Fix querying
-    - Fix including booleans
-    - Add color parsing?
 - [ ] Think of better system to track user interest
     - Maybe a graph
     - Track recency for decay and frequency for interest signals
     - Track in vector space for topic clusters
+- [ ] Fix querying
+    - Fix including booleans
+    - Add color parsing?
 - [ ] Create nudges system
 
 ## Setup

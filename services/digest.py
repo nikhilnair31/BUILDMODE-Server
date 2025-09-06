@@ -1,14 +1,18 @@
 # digest.py
 
+import ast
+from collections import Counter, defaultdict
+import json
 import logging
-from datetime import datetime, time, timedelta, date, UTC
+from datetime import datetime, time, UTC, timedelta, timezone
 from pathlib import Path
+import re
 from typing import List
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-import markdown
-from sqlalchemy import and_, text, create_engine
+from sqlalchemy import and_, create_engine
 from sqlalchemy.orm import sessionmaker
+import yaml
 from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.models import DataEntry, User
 from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
@@ -39,13 +43,119 @@ def get_all_data(user_id):
 
     return now_rows
 
+def build_tags_yaml(now_rows, now=None, top_k_similar=3):
+    now = now or datetime.now(timezone.utc)
+
+    def to_dt(ts):
+        if isinstance(ts, datetime):
+            return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        try:
+            return datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        except Exception:
+            return None
+
+    def extract_tags(raw):
+        # Accept list/tuple/set, JSON string, python-literal string, or comma-separated string.
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple, set)):
+            return [str(t) for t in raw if str(t).strip()]
+        if isinstance(raw, str):
+            s = raw.strip()
+            # JSON dict or list?
+            try:
+                obj = json.loads(s)
+                if isinstance(obj, dict):
+                    out = []
+                    for key in ("tags", "keywords", "themes"):
+                        v = obj.get(key)
+                        if isinstance(v, (list, tuple, set)):
+                            out.extend([str(t) for t in v if str(t).strip()])
+                    if out:
+                        return out
+                if isinstance(obj, list):
+                    return [str(t) for t in obj if str(t).strip()]
+            except Exception:
+                pass
+            # Python literal?
+            try:
+                obj = ast.literal_eval(s)
+                if isinstance(obj, (list, tuple, set)):
+                    return [str(t) for t in obj if str(t).strip()]
+            except Exception:
+                pass
+            # Fallback: comma-separated
+            return [p for p in (t.strip() for t in s.split(",")) if p]
+        return [str(raw)]
+
+    def norm(tag: str) -> str:
+        t = re.sub(r"\s+", " ", tag.strip().lower())
+        return t[:256]  # guardrails
+
+    # Gather timestamps per tag and co-occurrence
+    tag_to_ts = defaultdict(list)
+    co = defaultdict(Counter)
+
+    for row in now_rows:
+        ts_raw = getattr(row, "timestamp", None)
+        dt = to_dt(ts_raw)
+        if not dt:
+            continue
+        raw_tags = getattr(row, "tags", None)
+        tags = [norm(t) for t in extract_tags(raw_tags)]
+        # If no tags, try to mine from a 'data'/'json' field if present
+        if not tags:
+            for alt_field in ("data", "json", "raw", "metadata"):
+                if hasattr(row, alt_field):
+                    tags = [norm(t) for t in extract_tags(getattr(row, alt_field))]
+                    if tags:
+                        break
+        # Deduplicate tags within a row to avoid inflated co-occurrence
+        tags = list(dict.fromkeys(tags))
+        if not tags:
+            continue
+
+        for t in tags:
+            tag_to_ts[t].append(dt)
+        for i, a in enumerate(tags):
+            for b in tags:
+                if a != b:
+                    co[a][b] += 1
+
+    def count_in(days, lst):
+        cutoff = now - timedelta(days=days)
+        return sum(1 for d in lst if d >= cutoff)
+
+    # Assemble summaries
+    items = []
+    for tag, ts_list in tag_to_ts.items():
+        ts_list.sort()
+        items.append({
+            "tag": tag,
+            "total_freq": len(ts_list),
+            "freq_in_1d": count_in(1, ts_list),
+            "freq_in_7d": count_in(7, ts_list),
+            "freq_in_30d": count_in(30, ts_list),
+            "freq_in_6m": count_in(182, ts_list),
+            "freq_in_1y": count_in(365, ts_list),
+            "similar_tags": [t for t, _ in co[tag].most_common(top_k_similar)],
+            "latest_timestamp": int(ts_list[-1].timestamp()),
+            "earliest_timestamp": int(ts_list[0].timestamp()),
+        })
+
+    # Sort by total frequency desc, then tag asc
+    items.sort(key=lambda x: (-x["total_freq"], x["tag"]))
+
+    out = {"tags_summary": items}
+    return yaml.safe_dump(out, sort_keys=False)
+
 def get_ai_search(now_rows: List[DataEntry]):
     sys_prompt = f"""
     Generate a single line search query based on the determined persona of the user from their saved posts.
     """
     
-    usr_prompt = str([f"{row.id} - {row.tags}" for row in now_rows])
-    # logger.info(f"usr_prompt\n{usr_prompt}")
+    usr_prompt = build_tags_yaml(now_rows)
+    logger.info(f"usr_prompt\n{usr_prompt}")
     
     summary_text_out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
     # logger.info(f"summary_text_out\n{summary_text_out}")
@@ -138,21 +248,21 @@ def run_once():
             unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
             digest_html, inline_images = generate_digest(user.id, unsubscribe_url)
             
-            if digest_html:
-                send_email(
-                    user_email = user.email,
-                    subject = f"Your FORGOR Digest",
-                    html_body = digest_html,
-                    inline_images=inline_images,
-                    unsubscribe_url = unsubscribe_url
-                )
-            else:
-                logger.warning(f"No digest content generated for {user.username}")
+            # if digest_html:
+            #     send_email(
+            #         user_email = user.email,
+            #         subject = f"Your FORGOR Digest",
+            #         html_body = digest_html,
+            #         inline_images=inline_images,
+            #         unsubscribe_url = unsubscribe_url
+            #     )
+            # else:
+            #     logger.warning(f"No digest content generated for {user.username}")
 
-            # update last sent timestamp
-            now_ts = int(now_dt.timestamp())
-            user.last_digest_sent = now_ts
-            session.add(user)
+            # # update last sent timestamp
+            # now_ts = int(now_dt.timestamp())
+            # user.last_digest_sent = now_ts
+            # session.add(user)
         else:
             logger.debug(f"Summary not due for {user.username} ({user.email})")
 
