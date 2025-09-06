@@ -9,7 +9,7 @@ from typing import List, Tuple
 from sqlalchemy import func, and_, create_engine
 from core.content.images import create_pinterest_mosaic
 from core.database.models import DataEntry, User
-from core.notifications.emails import is_valid_email, send_email
+from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
 from core.utils.config import Config
 from core.ai.ai import call_gemini_with_text
 
@@ -79,7 +79,7 @@ def get_img_mosaic(now_rows: List[DataEntry]):
 
 # ---------- Summary Generator ----------
 
-def generate_summary(user_id: int, period="weekly"):
+def generate_summary(user_id: int, unsubscribe_url: str, period="weekly"):
     # Get time range
     period_start, period_end, prev_start, prev_end = epoch_range(period)
 
@@ -104,6 +104,9 @@ def generate_summary(user_id: int, period="weekly"):
     end_str   = datetime.fromtimestamp(period_end, tz=UTC).strftime("%Y-%m-%d")
     replacements["TIME_RANGE_TITLE"] = f"{period.upper()} SUMMARY "
     replacements["TIME_RANGE_SUB"] = f"{start_str} → {end_str}"
+    
+    # Unsub
+    replacements["[UNSUB_URL]"] = unsubscribe_url
 
     # Load template
     with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
@@ -118,14 +121,14 @@ def generate_summary(user_id: int, period="weekly"):
 def run_once():
     now = int(datetime.now(UTC).timestamp())
     
-    all_users = session.query(User).all()
+    all_users = session.query(User) \
+        .filter(
+            User.summary_email_enabled == True,
+            is_valid_email(User.email)
+        ) \
+        .all()
 
     for user in all_users:
-        # check email validity
-        if not is_valid_email(user.email):
-            print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
-            continue
-        
         freq_name = user.summary_frequency_id.name if user.summary_frequency_id else "unspecified"
 
         # decide if summary is due
@@ -142,7 +145,9 @@ def run_once():
         if due:
             print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
-            summary_content, inline_images = generate_summary(user_id=user.id, period=freq_name)
+            token = make_unsubscribe_token(user.id, user.email, "summary")
+            unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
+            summary_content, inline_images = generate_summary(user_id=user.id, unsubscribe_url=unsubscribe_url, period=freq_name)
             
             if summary_content:
                 send_email(

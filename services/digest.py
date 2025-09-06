@@ -59,7 +59,7 @@ def build_user_urls(search_results) -> str:
     
     return ("[USER_URLS]", "\n".join(items))
 
-def generate_digest(user_id):
+def generate_digest(user_id: int, unsubscribe_url: str):
     # Get all data
     now_rows = get_all_data(user_id)
 
@@ -72,6 +72,9 @@ def generate_digest(user_id):
     # User URLs
     k, v = build_user_urls(search_res)
     replacements[k] = v
+    
+    # Unsub
+    replacements["[UNSUB_URL]"] = unsubscribe_url
 
     # Load template
     with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
@@ -90,15 +93,12 @@ def run_once():
     # Get all users that have digest email enabled
     all_users = session.query(User) \
         .filter(
-            User.digest_email_enabled == True
+            User.digest_email_enabled == True,
+            is_valid_email(User.email)
         ) \
         .all()
 
     for user in all_users:
-        # check email validity
-        if not is_valid_email(user.email):
-            logger.info(f"Skipping user {user.id}: invalid or missing email ({user.email})")
-            continue
         logger.info(f"Proceeding for user {user.id} ({user.email})")
 
         # parse timezone
@@ -120,15 +120,15 @@ def run_once():
         send_window_end   = time(9, 0)
         in_window = send_window_start <= local_now.time() <= send_window_end
 
-        # due = True
-        due = in_window and (last_sent_dt.date() < local_now.date())
+        due = True
+        # due = in_window and (last_sent_dt.date() < local_now.date())
         if due:
             logger.info(f"Sending digest to {user.username} ({user.email})")
 
-            digest_html = generate_digest(user.id)
+            token = make_unsubscribe_token(user.id, user.email, "digest")
+            unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
+            digest_html = generate_digest(user.id, unsubscribe_url)
             if digest_html:
-                token = make_unsubscribe_token(user.id, user.email, "digest")
-                unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
                 send_email(
                     user_email = user.email,
                     subject = f"Your FORGOR Digest",
