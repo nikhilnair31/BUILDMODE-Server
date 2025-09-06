@@ -121,19 +121,19 @@ def generate_summary(user_id: int, unsubscribe_url: str, period="weekly"):
 def run_once():
     now = int(datetime.now(UTC).timestamp())
     
-    all_users = session.query(User) \
-        .filter(
-            User.summary_email_enabled == True,
-            is_valid_email(User.email)
-        ) \
-        .all()
-
+    # Get all users that have summary email enabled
+    all_users = session.query(User).filter(User.summary_email_enabled == True).all()
     for user in all_users:
-        freq_name = user.summary_frequency_id.name if user.summary_frequency_id else "unspecified"
+        # check email validity
+        if not is_valid_email(user.email):
+            print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
+            continue
+        logger.info(f"Proceeding for user {user.id} ({user.email})")
 
         # decide if summary is due
-        last_sent = user.last_summary_sent or 0
         due = False
+        last_sent = user.last_summary_sent or 0
+        freq_name = user.summary_frequency.name if user.summary_frequency else "unspecified"
 
         if freq_name == "daily":
             due = now - last_sent >= 86400  # 1 day

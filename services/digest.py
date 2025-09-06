@@ -91,31 +91,21 @@ def run_once():
     now_ts = int(now_dt.timestamp())
     
     # Get all users that have digest email enabled
-    all_users = session.query(User) \
-        .filter(
-            User.digest_email_enabled == True,
-            is_valid_email(User.email)
-        ) \
-        .all()
-
+    all_users = session.query(User).filter(User.digest_email_enabled == True).all()
     for user in all_users:
+        # check email validity
+        if not is_valid_email(user.email):
+            print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
+            continue
         logger.info(f"Proceeding for user {user.id} ({user.email})")
 
-        # parse timezone
-        FALLBACK_TZ = "America/New_York"
-        try:
-            tz = ZoneInfo(user.timezone) if user.timezone else ZoneInfo(FALLBACK_TZ)
-        except Exception:
-            tz = ZoneInfo(FALLBACK_TZ)
-
         # last digest
+        tz = ZoneInfo(user.timezone) if user.timezone else ZoneInfo("America/New_York")
         last_sent = user.last_digest_sent or 0
         last_sent_dt = datetime.fromtimestamp(last_sent, tz=UTC)
 
-        # current local time
-        local_now = now_dt.astimezone(tz)
-
         # --- morning window (06:00–09:00 local) ---
+        local_now = now_dt.astimezone(tz)
         send_window_start = time(6, 0)
         send_window_end   = time(9, 0)
         in_window = send_window_start <= local_now.time() <= send_window_end

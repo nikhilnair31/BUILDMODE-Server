@@ -6,7 +6,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Add unsubscribe link in emails
 - [ ] Improve digest prompt for better recommendations
 - [ ] Improve summary prompt for more digestible information
 - [ ] Improve digest & summary styling (use Limitless/Vapi/Claude as examples)
