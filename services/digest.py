@@ -14,6 +14,14 @@ from core.database.models import DataEntry, User
 from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
 from core.utils.config import Config
 
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, force=True)
+logger = logging.getLogger(__name__)
+
+engine = create_engine(Config.ENGINE_URL)
+Session = sessionmaker(bind=engine)
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_digest.html"
 
@@ -87,16 +95,19 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     return html_template
 
 def run_once():
-    now_dt = datetime.now(UTC)
-    now_ts = int(now_dt.timestamp())
-    
     # Get all users that have digest email enabled
-    all_users = session.query(User).filter(User.digest_email_enabled == True).all()
+    all_users = session.query(User).all()
     for user in all_users:
         # check email validity
         if not is_valid_email(user.email):
             print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
             continue
+        
+        # check email enabled
+        if not user.digest_email_enabled == False:
+            logger.info(f"Skipping user {user.id} cause they have digest emails disabled")
+            continue
+
         logger.info(f"Proceeding for user {user.id} ({user.email})")
 
         # last digest
@@ -105,13 +116,16 @@ def run_once():
         last_sent_dt = datetime.fromtimestamp(last_sent, tz=UTC)
 
         # --- morning window (06:00–09:00 local) ---
+        now_dt = datetime.now(UTC)
         local_now = now_dt.astimezone(tz)
         send_window_start = time(6, 0)
         send_window_end   = time(9, 0)
         in_window = send_window_start <= local_now.time() <= send_window_end
 
-        due = True
-        # due = in_window and (last_sent_dt.date() < local_now.date())
+        due = False
+        due = in_window and (last_sent_dt.date() < local_now.date())
+
+        # due = True
         if due:
             logger.info(f"Sending digest to {user.username} ({user.email})")
 
@@ -129,23 +143,16 @@ def run_once():
                 logger.warning(f"No digest content generated for {user.username}")
 
             # update last sent timestamp
+            now_ts = int(now_dt.timestamp())
             user.last_digest_sent = now_ts
             session.add(user)
         else:
-            elapsed = now_ts - last_sent
-            logger.debug(f"Summary not due for {user.username} ({user.email}), last sent {elapsed}s ago")
+            logger.debug(f"Summary not due for {user.username} ({user.email})")
 
     session.commit()
     session.close()
 
 # ---------- Run directly ----------
-
-load_dotenv()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("digest")
-
-engine = create_engine(Config.ENGINE_URL, pool_pre_ping=True)
-Session = sessionmaker(bind=engine)
 
 if __name__ == "__main__":
     session = Session()

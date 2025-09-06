@@ -265,9 +265,14 @@ def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_heigh
     :param bg_color: Background fill color
     """
     canvas_w, canvas_h = final_size
+    valid_paths = [p for p in image_paths if p and os.path.isfile(p)]
+    if not valid_paths:
+        # Return a tiny valid JPEG to avoid errors upstream
+        buf = io.BytesIO()
+        Image.new("RGB", (1, 1), bg_color).save(buf, format="JPEG", quality=95)
+        return buf.getvalue()
     mosaic = Image.new("RGB", final_size, bg_color)
 
-    rows = []
     row, row_width = [], 0
     y_offset = 0
 
@@ -301,9 +306,28 @@ def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_heigh
         except Exception as e:
             print(f"Skipping {path}: {e}")
 
-    # Crop vertically to filled space (no empty bands at bottom)
+    # Render leftover partial row if any space remains
+    if row and y_offset < canvas_h:
+        total_aspect = sum(a for _, a in row)
+        row_h = min(target_row_height, canvas_h - y_offset)
+        if row_h > 0:
+            x_offset = 0
+            for im, a in row:
+                w = int(a * row_h)
+                resized = im.resize((w, row_h), Image.Resampling.LANCZOS)
+                mosaic.paste(resized, (x_offset, y_offset))
+                x_offset += w
+            y_offset += row_h
+
+    # If still nothing rendered, return tiny JPEG
+    if y_offset <= 0:
+        buf = io.BytesIO()
+        Image.new("RGB", (1, 1), bg_color).save(buf, format="JPEG", quality=95)
+        return buf.getvalue()
+
+    # Crop vertically to filled space
     mosaic = mosaic.crop((0, 0, canvas_w, y_offset))
-    
+
     # Save to bytes
     buf = io.BytesIO()
     mosaic.save(buf, format="JPEG", quality=95)

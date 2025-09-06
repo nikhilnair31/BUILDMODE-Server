@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------- GENERATE ------------------------------------
  
 def call_llm_api(image_list, sys_prompt=Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT, temp=0.2):
-    print(f"\nLLM...")
+    print(f"LLM...")
 
     return call_gemini_with_images(image_list, sys_prompt, temp)
 
 def call_gemini_with_images(image_list, sys_prompt, temp):
-    print(f"Calling Gemini generate...\n")
+    print(f"Calling Gemini generate...")
 
     try:
         client = genai.Client(
@@ -50,7 +50,7 @@ def call_gemini_with_images(image_list, sys_prompt, temp):
         return ""
 
 def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
-    print(f"Calling Gemini generate...\n")
+    print(f"Calling Gemini generate...")
 
     try:
         client = genai.Client(
@@ -83,7 +83,7 @@ def call_vec_api(query_text, task_type):
     return response_json
 
 def get_gemini_embedding(text, task_type):
-    print(f"Getting Gemini embedding...\n")
+    print(f"Getting Gemini embedding...")
     
     try:
         client = genai.Client(
@@ -108,7 +108,7 @@ def get_gemini_embedding(text, task_type):
 # ---------------------------------- SEARCH ----------------------------------
 
 def get_exa_search(text):
-    print(f"Getting Exa AI search...\n")
+    print(f"Getting Exa AI search...")
     
     try:
         exa = Exa(

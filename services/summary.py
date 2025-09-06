@@ -13,24 +13,20 @@ from core.notifications.emails import is_valid_email, make_unsubscribe_token, se
 from core.utils.config import Config
 from core.ai.ai import call_gemini_with_text
 
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, force=True)
+logger = logging.getLogger(__name__)
+
+engine = create_engine(Config.ENGINE_URL)
+Session = sessionmaker(bind=engine)
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_summary.html"
 
-# ---------- Helper Functions ----------
-
-def epoch_range(period: str) -> Tuple[int,int,int,int]:
-    now = datetime.now(UTC)
-    if period == "weekly":
-        start = now - timedelta(days=7)
-        prev_start = start - timedelta(days=7)
-    else:  # monthly
-        start = now - timedelta(days=30)
-        prev_start = start - timedelta(days=30)
-    return int(start.timestamp()), int(now.timestamp()), int(prev_start.timestamp()), int(start.timestamp())
-
 # ---------- Main Functions ----------
 
-def get_all_data(user_id, period_start, period_end, prev_start, prev_end):
+def get_all_data(user_id, period_start, period_end):
     # Current period rows (full)
     now_rows: List[DataEntry] = session.query(DataEntry) \
         .filter(
@@ -43,31 +39,22 @@ def get_all_data(user_id, period_start, period_end, prev_start, prev_end):
         .order_by(DataEntry.timestamp.desc()) \
         .limit(1000) \
         .all()
-    
-    # Previous period count (for % change)
-    prev_cnt = session.query(func.count(DataEntry.id)).filter(
-        and_(DataEntry.user_id == user_id,
-             DataEntry.timestamp >= prev_start,
-             DataEntry.timestamp < prev_end)
-    ).scalar() or 0
 
-    # Total archive
-    total_cnt = session.query(func.count(DataEntry.id)).filter(
-        DataEntry.user_id == user_id
-    ).scalar() or 0
-
-    return (now_rows, prev_cnt, total_cnt)
+    return now_rows
 
 def get_ai_summary(now_rows: List[DataEntry], period: str):
     sys_prompt = f"""
     Generate a summary based on the user's saved posts in the past {period} period.
     """
-    print(f"sys_prompt\n{sys_prompt}")
+    # logger.info(f"sys_prompt\n{sys_prompt}")
+    
     usr_prompt = str([f"{row.id} - {row.tags}" for row in now_rows])
-    print(f"usr_prompt\n{usr_prompt}")
+    # logger.info(f"usr_prompt\n{usr_prompt}")
+    
     out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
     out_html = markdown.markdown(out)
-    print(f"out_html\n{out_html}")
+    logger.info(f"out_html\n{out_html}")
+    
     return ("[AI_SUMMARY]", out_html)
 
 def get_img_mosaic(now_rows: List[DataEntry]):
@@ -77,14 +64,28 @@ def get_img_mosaic(now_rows: List[DataEntry]):
     html_img_tag = f'<img src="cid:{cid}" alt="Mosaic" style="max-width:100%;">'
     return ("[IMAGE_PLACEHOLDER]", html_img_tag, {cid: img_bytes})
 
+def epoch_range(period: str) -> Tuple[int,int]:
+    now = datetime.now(UTC)
+    
+    if period == "daily":
+        start = now - timedelta(hours=24)
+    elif period == "weekly":
+        start = now - timedelta(days=7)
+    elif period == "monthly":
+        start = now - timedelta(days=30)
+    else:
+        start = now - timedelta(days=365)
+    
+    return int(start.timestamp()), int(now.timestamp())
+
 # ---------- Summary Generator ----------
 
 def generate_summary(user_id: int, unsubscribe_url: str, period="weekly"):
     # Get time range
-    period_start, period_end, prev_start, prev_end = epoch_range(period)
+    period_start, period_end = epoch_range(period)
 
     # Get all data
-    now_rows, prev_cnt, total_cnt = get_all_data(user_id, period_start, period_end, prev_start, prev_end)
+    now_rows = get_all_data(user_id, period_start, period_end)
 
     # Collect replacements + inline images
     replacements = {}
@@ -119,21 +120,28 @@ def generate_summary(user_id: int, unsubscribe_url: str, period="weekly"):
     return html_template, inline_images
 
 def run_once():
-    now = int(datetime.now(UTC).timestamp())
-    
-    # Get all users that have summary email enabled
-    all_users = session.query(User).filter(User.summary_email_enabled == True).all()
+    # Get all users
+    all_users = session.query(User).all()
     for user in all_users:
         # check email validity
         if not is_valid_email(user.email):
-            print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
+            logger.info(f"Skipping user {user.id}: invalid or missing email ({user.email})")
             continue
+        
+        # check email enabled
+        if not user.summary_email_enabled:
+            logger.info(f"Skipping user {user.id} cause they have summary emails disabled")
+            continue
+
         logger.info(f"Proceeding for user {user.id} ({user.email})")
 
         # decide if summary is due
         due = False
         last_sent = user.last_summary_sent or 0
-        freq_name = user.summary_frequency.name if user.summary_frequency else "unspecified"
+        freq = user.summary_frequency
+        freq_name = freq.name if freq else "unspecified"
+        now = int(datetime.now(UTC).timestamp())
+        logger.info(f"freq_name: {freq_name}")
 
         if freq_name == "daily":
             due = now - last_sent >= 86400  # 1 day
@@ -141,9 +149,11 @@ def run_once():
             due = now - last_sent >= 604800  # 7 days
         elif freq_name == "monthly":
             due = now - last_sent >= 2592000 # ~30 days
+        logger.info(f"due: {due}")
 
+        due = True
         if due:
-            print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
+            logger.info(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
             token = make_unsubscribe_token(user.id, user.email, "summary")
             unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
@@ -163,19 +173,12 @@ def run_once():
             user.last_summary_sent = now
             session.add(user)
         else:
-            print(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
+            logger.info(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
 
     session.commit()
     session.close()
 
 # ---------- Run directly ----------
-
-load_dotenv()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("summary")
-
-engine = create_engine(Config.ENGINE_URL)
-Session = sessionmaker(bind=engine)
 
 if __name__ == "__main__":
     session = Session()
@@ -183,5 +186,5 @@ if __name__ == "__main__":
     try:
         run_once()
     except Exception as e:
-        print(f"Error creating summary: {e}")
+        logger.info(f"Error creating summary: {e}")
         session.close()

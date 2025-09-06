@@ -74,7 +74,17 @@ def send_email(user_email: str, subject: str, html_body: str, text_body: str = N
         # Inline images
         if inline_images:
             for cid, img_bytes in inline_images.items():
-                img_part = MIMEImage(img_bytes, _subtype="jpeg")
+                if not img_bytes:
+                    continue
+                if hasattr(img_bytes, "getvalue"):
+                    img_bytes = img_bytes.getvalue()
+                if not img_bytes:
+                    continue
+                try:
+                    img_part = MIMEImage(img_bytes, _subtype="jpeg")
+                except Exception as e:
+                    logger.warning(f"Skipping inline image {cid}: {e}")
+                    continue
                 img_part.add_header("Content-ID", f"<{cid}>")
                 img_part.add_header("Content-Disposition", "inline", filename=f"{cid}.jpg")
                 msg.attach(img_part)
