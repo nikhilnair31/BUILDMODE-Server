@@ -71,6 +71,7 @@ def save_limit_required(f):
             session.close()
     return wrapper
 
+# Placed here instead of in routes.users.py since it's need as a check
 def get_user_upload_info(current_user):
     logger.info(f"Getting upload info for user: {current_user.username}\n")
     session = get_db_session()

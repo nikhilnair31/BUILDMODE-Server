@@ -240,7 +240,7 @@ def run_once():
         due = False
         due = in_window and (last_sent_dt.date() < local_now.date())
 
-        due = True
+        # due = True
         if due:
             logger.info(f"Sending digest to {user.username} ({user.email})")
 
@@ -248,21 +248,21 @@ def run_once():
             unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
             digest_html, inline_images = generate_digest(user.id, unsubscribe_url)
             
-            # if digest_html:
-            #     send_email(
-            #         user_email = user.email,
-            #         subject = f"Your FORGOR Digest",
-            #         html_body = digest_html,
-            #         inline_images=inline_images,
-            #         unsubscribe_url = unsubscribe_url
-            #     )
-            # else:
-            #     logger.warning(f"No digest content generated for {user.username}")
+            if digest_html:
+                send_email(
+                    user_email = user.email,
+                    subject = f"Your FORGOR Digest",
+                    html_body = digest_html,
+                    inline_images=inline_images,
+                    unsubscribe_url = unsubscribe_url
+                )
+            else:
+                logger.warning(f"No digest content generated for {user.username}")
 
-            # # update last sent timestamp
-            # now_ts = int(now_dt.timestamp())
-            # user.last_digest_sent = now_ts
-            # session.add(user)
+            # update last sent timestamp
+            now_ts = int(now_dt.timestamp())
+            user.last_digest_sent = now_ts
+            session.add(user)
         else:
             logger.debug(f"Summary not due for {user.username} ({user.email})")
 

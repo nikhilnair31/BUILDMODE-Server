@@ -17,13 +17,50 @@ logger = logging.getLogger(__name__)
 # @limiter.limit("2 per second")
 @token_required
 def get_saves_left(current_user):
-    info, error_response_obj, status_code, session = get_user_upload_info(current_user)
-    if error_response_obj:
-        session.close()
-        return error_response_obj, status_code
-
     try:
+        info, error_response_obj, status_code, session = get_user_upload_info(current_user)
+        
+        if error_response_obj:
+            session.close()
+            return error_response_obj, status_code
+        
         return jsonify(info), 200
+    finally:
+        session.close()
+
+@users_bp.route('/summary-frequency', methods=['GET'])
+# @limiter.limit("2 per second")
+@token_required
+def summary_frequency(current_user):
+    session = get_db_session()
+    try:
+        user = session.query(User).filter(User.id == current_user.id).first()
+        if not user:
+            return error_response("User not found", 404)
+        return {"summary_index": user.summary_frequency_id}, 200
+
+    except Exception as e:
+        logger.error(f"Error getting summary frequency for {current_user.id}: {e}")
+        return error_response("Error getting summary frequency", 500)
+    
+    finally:
+        session.close()
+
+@users_bp.route('/digest-enabled', methods=['GET'])
+# @limiter.limit("2 per second")
+@token_required
+def digest_enabled(current_user):
+    session = get_db_session()
+    try:
+        user = session.query(User).filter(User.id == current_user.id).first()
+        if not user:
+            return error_response("User not found", 404)
+        return {"digest_enabled": user.digest_email_enabled}, 200
+    
+    except Exception as e:
+        logger.error(f"Error getting digest enabled for {current_user.id}: {e}")
+        return error_response("Error getting digest enabled", 500)
+    
     finally:
         session.close()
 
