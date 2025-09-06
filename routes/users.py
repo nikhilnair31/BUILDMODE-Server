@@ -31,7 +31,7 @@ def get_saves_left(current_user):
 @users_bp.route('/summary-frequency', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
-def summary_frequency(current_user):
+def get_summary_frequency(current_user):
     session = get_db_session()
     try:
         user = session.query(User).filter(User.id == current_user.id).first()
@@ -49,7 +49,7 @@ def summary_frequency(current_user):
 @users_bp.route('/digest-enabled', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
-def digest_enabled(current_user):
+def get_digest_enabled(current_user):
     session = get_db_session()
     try:
         user = session.query(User).filter(User.id == current_user.id).first()
@@ -157,7 +157,7 @@ def update_email(current_user):
 @users_bp.route('/summary-frequency', methods=['PUT'])
 # @limiter.limit("1 per second")
 @token_required
-def summary_frequency(current_user):
+def put_summary_frequency(current_user):
     logger.info(f"Updating summary frequency for: {current_user.id}")
 
     session = get_db_session()
@@ -197,8 +197,8 @@ def summary_frequency(current_user):
 @users_bp.route('/digest-enabled', methods=['PUT'])
 # @limiter.limit("1 per second")
 @token_required
-def digest_enabled(current_user):
-    logger.info(f"Updating digest enabled for: {current_user.id}")
+def put_digest_enabled(current_user):
+    logger.info(f"Updating digest enabled for user: {current_user.id}")
 
     session = get_db_session()
     try:
