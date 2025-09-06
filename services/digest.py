@@ -87,7 +87,12 @@ def run_once():
     now_dt = datetime.now(UTC)
     now_ts = int(now_dt.timestamp())
     
-    all_users = session.query(User).all()
+    # Get all users that have digest email enabled
+    all_users = session.query(User) \
+        .filter(
+            User.digest_email_enabled == True
+        ) \
+        .all()
 
     for user in all_users:
         # check email validity
@@ -112,11 +117,8 @@ def run_once():
 
         # --- morning window (06:00–09:00 local) ---
         send_window_start = time(6, 0)
-        logger.info(f"send_window_start {send_window_start}")
         send_window_end   = time(9, 0)
-        logger.info(f"send_window_end {send_window_end}")
         in_window = send_window_start <= local_now.time() <= send_window_end
-        logger.info(f"in_window {in_window}")
 
         # due = True
         due = in_window and (last_sent_dt.date() < local_now.date())

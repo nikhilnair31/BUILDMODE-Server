@@ -10,7 +10,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 - [ ] Improve digest prompt for better recommendations
 - [ ] Improve summary prompt for more digestible information
 - [ ] Improve digest & summary styling (use Limitless/Vapi/Claude as examples)
-- [ ] Add tracker data to see the posts users opened
 - [ ] Fix querying
     - Fix including booleans
     - Add color parsing?

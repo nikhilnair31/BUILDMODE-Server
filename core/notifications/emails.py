@@ -77,8 +77,8 @@ def send_email(user_email: str, subject: str, html_body: str, text_body: str = N
         msg["Subject"] = subject
 
         if unsubscribe_url:
-            # List-Unsubscribe header for mail clients / ESPs
-            msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+            msg["List-Unsubscribe"] = f"<{unsubscribe_url}>, <mailto:unsubscribe@forgor.space?subject=unsubscribe>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
         # Alternative: plain-text and HTML
         alt = MIMEMultipart("alternative")

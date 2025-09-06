@@ -42,12 +42,13 @@ def apply_middleware(app):
     # Before Request
     @app.before_request
     def restrict_headers():
-        if request.path.startswith("/api/get_file/") or request.path.startswith("/api/get_thumbnail/"):
+        if request.path.startswith("/api/get_file") or request.path.startswith("/api/get_thumbnail") or request.path.startswith("/api/unsubscribe"):
             return
+
+        # logger.info(f'request.path: {request.path}')
 
         user_agent = request.headers.get("User-Agent", "")
         api_key = request.headers.get("X-App-Key", None)
-        # logger.info(f'user_agent: {user_agent}\napi_key: {api_key}')
 
         # Allow during development/testing
         if "python" in user_agent.lower() or "postman" in user_agent.lower():
@@ -57,6 +58,9 @@ def apply_middleware(app):
         if not api_key or api_key != Config.APP_SECRET_KEY:
             logger.error(f"Rejected request with UA: {user_agent}, API key: {api_key}")
             abort(403, description="Forbidden: Invalid or missing headers.")
+
+        # logger.info(f'user_agent: {user_agent}')
+        # logger.info(f'api_key: {api_key}')
 
     logger.info("Middleware applied.")
     return limiter # Return limiter for potential future use or configuration

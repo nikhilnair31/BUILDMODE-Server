@@ -220,6 +220,7 @@ def check_text(current_user):
         e = "searchText required"
         logger.error(e)
         return error_response(e, 400)
+    logger.info(f"check check_text: {check_text}")
     
     cache_key = get_cache_key(current_user.id, check_text)
     if cache_key in query_cache:
@@ -239,13 +240,13 @@ def check_text(current_user):
     
     # ---------------- New ----------------
 
-    query_wo_time_text, time_filter = extract_time_filter(check_text)
-    logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
+    # query_wo_time_text, time_filter = extract_time_filter(check_text)
+    # logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
 
     # cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
     # logger.info(f"cleaned_query_text: {cleaned_query_text}")
 
-    vec_query = cached_call_vec_api(query_wo_time_text) if query_wo_time_text else None
+    vec_query = cached_call_vec_api(check_text) if check_text else None
 
     sql = text("""
         WITH bounds AS (
@@ -306,11 +307,11 @@ def check_text(current_user):
     """)
     params = {
         "userid": userid,
-        "fts_query": query_wo_time_text,
-        "trgm_query": query_wo_time_text,
+        "fts_query": check_text,
+        "trgm_query": check_text,
         "vec_query": vec_query,
-        "start_ts": time_filter[0] if time_filter else None,
-        "end_ts": time_filter[1] if time_filter else None
+        "start_ts": None,
+        "end_ts": None
     }
 
     result = session.execute(sql, params).fetchmany(10)
