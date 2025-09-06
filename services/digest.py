@@ -11,7 +11,7 @@ from sqlalchemy import and_, text, create_engine
 from sqlalchemy.orm import sessionmaker
 from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.models import DataEntry, User
-from core.notifications.emails import is_valid_email, send_email
+from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
 from core.utils.config import Config
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -125,10 +125,13 @@ def run_once():
 
             digest_html = generate_digest(user.id)
             if digest_html:
+                token = make_unsubscribe_token(user.id, user.email, "digest")
+                unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
                 send_email(
                     user_email = user.email,
                     subject = f"Your FORGOR Digest",
-                    html_body = digest_html
+                    html_body = digest_html,
+                    unsubscribe_url = unsubscribe_url
                 )
             else:
                 logger.warning(f"No digest content generated for {user.username}")

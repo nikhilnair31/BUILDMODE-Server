@@ -2,15 +2,84 @@
 
 import logging
 from flask import request, jsonify
+from core.utils.data import _safe_unlink
 from routes import users_bp
+from core.utils.middleware import limiter
+from core.notifications.emails import verify_unsubscribe_token
 from core.database.database import get_db_session
-from core.database.models import User
+from core.database.models import DataEntry, Frequency, StagingEntry, User
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required, get_user_upload_info
 
 logger = logging.getLogger(__name__)
 
-@users_bp.route('/update-username', methods=['POST'])
+@users_bp.route('/get_saves_left', methods=['GET'])
+# @limiter.limit("2 per second")
+@token_required
+def get_saves_left(current_user):
+    info, error_response_obj, status_code, session = get_user_upload_info(current_user)
+    if error_response_obj:
+        session.close()
+        return error_response_obj, status_code
+
+    try:
+        return jsonify(info), 200
+    finally:
+        session.close()
+
+@users_bp.route('/account_delete', methods=['DELETE'])
+@token_required
+def account_delete(current_user):
+    logger.info(f"Deleting account for: {current_user.id}")
+
+    session = get_db_session()
+    try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        # 1) Load records to collect file paths BEFORE bulk deletes
+        staging_entries = session.query(StagingEntry).filter_by(user_id=user.id).all()
+        data_entries    = session.query(DataEntry).filter_by(user_id=user.id).all()
+
+        # 2) Delete files on disk
+        removed_files = 0
+        for s in staging_entries:
+            if _safe_unlink(s.file_path):
+                removed_files += 1
+
+        for d in data_entries:
+            if _safe_unlink(d.file_path):
+                removed_files += 1
+            if _safe_unlink(d.thumbnail_path):
+                removed_files += 1
+
+        # 3) Bulk delete DB rows + user (faster than per-row delete)
+        staging_deleted = session.query(StagingEntry).filter_by(user_id=user.id).delete(synchronize_session=False)
+        data_deleted    = session.query(DataEntry).filter_by(user_id=user.id).delete(synchronize_session=False)
+        session.delete(user)
+
+        session.commit()
+
+        logger.info(
+            f"Deleted User {user.id}, "
+            f"{staging_deleted} staging entries, "
+            f"{data_deleted} data entries."
+        )
+
+        return {"message": "Account deleted successfully."}, 200
+
+    except Exception as e:
+        logger.error(f"Error deleting account {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to delete account", 500)
+    
+    finally:
+        session.close()
+
+@users_bp.route('/update-username', methods=['PUT'])
 # @limiter.limit("1 per second")
 @token_required
 def update_username(current_user):
@@ -29,7 +98,7 @@ def update_username(current_user):
     
     return jsonify({'message': 'Username updated'}), 200
 
-@users_bp.route('/update-email', methods=['POST'])
+@users_bp.route('/update-email', methods=['PUT'])
 # @limiter.limit("1 per second")
 @token_required
 def update_email(current_user):
@@ -48,16 +117,118 @@ def update_email(current_user):
     
     return jsonify({'message': 'Email updated'}), 200
 
-@users_bp.route('/get_saves_left', methods=['GET'])
-# @limiter.limit("2 per second")
+@users_bp.route('/summary-frequency', methods=['PUT'])
+# @limiter.limit("1 per second")
 @token_required
-def get_saves_left(current_user):
-    info, error_response_obj, status_code, session = get_user_upload_info(current_user)
-    if error_response_obj:
-        session.close()
-        return error_response_obj, status_code
+def summary_frequency(current_user):
+    logger.info(f"Updating summary frequency for: {current_user.id}")
 
+    session = get_db_session()
     try:
-        return jsonify(info), 200
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        data = request.get_json()
+        if not data or "frequency" not in data:
+            return error_response("Missing 'frequency' field", 400)
+
+        # Look up frequency in DB
+        freq_name = data["frequency"].strip().lower()
+        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
+        if not freq:
+            return error_response(f"Invalid frequency '{freq_name}'", 400)
+
+        # Update user
+        user.summary_email_enabled = (freq.name != "none")
+        user.summary_frequency_id = freq.id
+        session.commit()
+
+        logger.info(f"User {user.id} summary frequency updated to {freq.name}")
+        return {"message": f"Summary frequency updated to {freq.name}"}, 200
+
+    except Exception as e:
+        logger.error(f"Error updating summary frequency for {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to update summary frequency", 500)
+
+    finally:
+        session.close()
+
+@users_bp.route('/digest-enabled', methods=['PUT'])
+# @limiter.limit("1 per second")
+@token_required
+def digest_enabled(current_user):
+    logger.info(f"Updating digest enabled for: {current_user.id}")
+
+    session = get_db_session()
+    try:
+        user = session.query(User).get(current_user.id)
+        if not user:
+            e = f"User ID {current_user.id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+
+        data = request.get_json()
+        if not data or "enabled" not in data:
+            return error_response("Missing 'enabled' field", 400)
+
+        raw_val = data["enabled"]
+        if isinstance(raw_val, bool):
+            enabled = raw_val
+        elif isinstance(raw_val, str):
+            enabled = raw_val.strip().lower() in ("true", "1", "yes", "y")
+        else:
+            return error_response("Invalid value for 'enabled'", 400)
+
+        # Update user
+        user.digest_email_enabled = enabled
+        session.commit()
+
+        logger.info(f"User {user.id} digest enabled updated to {enabled}")
+        return {"message": f"Digest frequency updated to {enabled}"}, 200
+
+    except Exception as e:
+        logger.error(f"Error updating digest enabled for {current_user.id}: {e}")
+        session.rollback()
+        return error_response("Failed to update digest enabled", 500)
+
+    finally:
+        session.close()
+
+@users_bp.route('/unsubscribe', methods=['PUT'])
+def unsubscribe():
+    token = request.args.get('t')
+    if not token:
+        return error_response("Missing unsubscribe token", 400)
+
+    payload = verify_unsubscribe_token(token)
+    if not payload:
+        return error_response("Invalid or expired unsubscribe token", 400)
+
+    uid = payload.get("uid")
+    email = payload.get("e")
+    source = payload.get("s")
+
+    session = get_db_session()
+    try:
+        user = session.query(User).filter_by(id=uid, email=email).first()
+        if not user:
+            return error_response("User not found", 404)
+
+        if source == 'digest':
+            user.email_unsubscribed = True
+        elif source == 'summary':
+            user.email_unsubscribed = True
+        else:
+            return error_response("Source isn't normal", 400)
+        
+        session.add(user)
+        session.commit()
+
+        logger.info(f"User {user.id} ({user.email}) unsubscribed from emails.")
+        return jsonify({"message": "You have been unsubscribed from future emails."}), 200
     finally:
         session.close()

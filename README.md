@@ -6,9 +6,18 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
+- [ ] Add unsubscribe link in emails
+- [ ] Improve digest prompt for better recommendations
+- [ ] Improve summary prompt for more digestible information
+- [ ] Improve digest & summary styling (use Limitless/Vapi/Claude as examples)
+- [ ] Add tracker data to see the posts users opened
 - [ ] Fix querying
     - Fix including booleans
     - Add color parsing?
+- [ ] Think of better system to track user interest
+    - Maybe a graph
+    - Track recency for decay and frequency for interest signals
+    - Track in vector space for topic clusters
 - [ ] Create nudges system
 
 ## Setup
@@ -341,7 +350,7 @@ sudo certbot renew --dry-run
 * Show logs (last 100 lines, live):
 
   ```bash
-  journalctl -u forgor-api.service -n 100 -f
+  journalctl -u forgor-api.service -f
   ```
 * Restart service:
 

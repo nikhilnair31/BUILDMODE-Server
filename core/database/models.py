@@ -8,6 +8,7 @@ from werkzeug.security import (
     check_password_hash
 )
 from sqlalchemy import (
+    Boolean,
     Column, 
     Integer, 
     String,
@@ -55,6 +56,17 @@ class DataEntry(Base):
     tags_vector = Column(Vector(768))
     timestamp = Column(Integer)
 
+class InteractionEntry(Base):
+    __tablename__ = 'interactions'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    data_id = Column(Integer, ForeignKey('data.id'))
+    user_query = Column(String)
+
+    user = relationship("User")
+    data = relationship("DataEntry")
+
 class User(Base):
     __tablename__ = 'users'
 
@@ -66,8 +78,10 @@ class User(Base):
     created_at = Column(Integer)
     updated_at = Column(Integer)
     tier_id = Column(Integer, ForeignKey('tiers.id'), default=1)
+    summary_email_enabled = Column(Boolean, default=False)
     summary_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
     last_summary_sent = Column(Integer, nullable=True)
+    digest_email_enabled = Column(Boolean, default=False)
     last_digest_sent = Column(Integer, nullable=True)
 
     tier = relationship("Tier")
