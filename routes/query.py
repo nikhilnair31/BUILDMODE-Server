@@ -12,7 +12,7 @@ from core.ai.ai import call_vec_api
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required
 from core.utils.cache import query_cache, get_cache_key
-from core.content.parser import extract_time_filter
+from core.content.parser import extract_time_filter, sanitize_tsquery
 
 logger = logging.getLogger(__name__)
 
@@ -113,17 +113,10 @@ def query(current_user):
     query_wo_time_text, time_filter = extract_time_filter(query_text)
     logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
 
-    # cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
-    # logger.info(f"cleaned_query_text: {cleaned_query_text}")
+    cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
+    logger.info(f"cleaned_query_text: {cleaned_query_text}")
 
     vec_query = cached_call_vec_api(query_wo_time_text) if query_wo_time_text else None
-
-    # candidate cutoffs
-    TOP_K_FTS = 200
-    TOP_K_VEC = 200
-    TOP_K_TRGM = 200
-    FINAL_LIMIT = 1000
-    TRGM_MIN = 0.05  # coarse filter for trigram leg
 
     sql = text("""
         WITH bounds AS (
@@ -141,7 +134,7 @@ def query(current_user):
             AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
             AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
             AND :fts_query <> ''
-            AND ts_rank(to_tsvector('english', d.tags), plainto_tsquery('english', :fts_query)) >= 0.05
+            AND ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) >= 0.05
         ),
         -- Vector leg
         vec_leg AS (
@@ -225,23 +218,18 @@ def query(current_user):
     """)
     params = {
         "userid": userid,
-        "fts_query": query_wo_time_text,
+        "fts_query": cleaned_query_text,
         "trgm_query": query_wo_time_text,
         "vec_query": vec_query,
         "start_ts": time_filter[0] if time_filter else None,
-        "end_ts": time_filter[1] if time_filter else None,
-        "k_fts": TOP_K_FTS,
-        "k_vec": TOP_K_VEC,
-        "k_trgm": TOP_K_TRGM,
-        "final_limit": FINAL_LIMIT,
-        "trgm_min": TRGM_MIN,
+        "end_ts": time_filter[1] if time_filter else None
     }
 
     result = session.execute(sql, params).fetchmany(1000)
     logger.info(f"len result: {len(result)}\n")
-    logger.info(f"result\n")
-    for i, row in enumerate(result):
-        logger.info(f"{i}\n{row}\n{"-"*60}")
+    # logger.info(f"result\n")
+    # for i, row in enumerate(result):
+    #     logger.info(f"{i}\n{row}\n{"-"*60}")
 
     result_json = {
         "results": [
