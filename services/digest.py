@@ -269,7 +269,7 @@ def run_once():
         due = False
         due = in_window and (last_sent_dt.date() < local_now.date())
 
-        due = True
+        # due = True
         if due:
             logger.info(f"Sending digest to {user.username} ({user.email})")
 

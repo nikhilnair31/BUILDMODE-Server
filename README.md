@@ -1,11 +1,12 @@
 # BUILDMODE-Server
 
-This repository contains setup instructions for configuring the **BUILDMODE Server**, including database, services, watchdogs, and NGINX with HTTPS support.
+This repository contains setup instructions for configuring the **BUILDMODE Server**, including database, services and NGINX with HTTPS support.
 
 ---
 
 ## To-Do
 
+- [ ] Add link creatiojn for tracking for posts and account identifiers too
 - [ ] Think of better system to track user interest
     - Maybe a graph
     - Track recency for decay and frequency for interest signals
@@ -141,110 +142,9 @@ The digest system sends weekly/monthly digests to users.
 sudo nano /etc/systemd/system/forgor-digest.service
 ```bash
 
-
-Example:
-
-```bash
-[Unit]
-Description=Send FORGOR digests
-After=network.target
-
-[Service]
-Type=simple
-User=forgor
-WorkingDirectory=/home/forgor/projects/BUILDMODE-Server
-ExecStart=/home/forgor/projects/BUILDMODE-Server/env/bin/python \
-    /home/forgor/projects/BUILDMODE-Server/services/digest.py
-Restart=on-failure
-```bash
-
-#### Create Timer
 ```bash
 sudo nano /etc/systemd/system/forgor-digest.timer
 ```bash
-
-
-Example (run daily at 3 AM):
-
-[Unit]
-Description=Run FORGOR digest job daily
-
-[Timer]
-OnCalendar=*-*-* 03:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-
-Enable & Start
-sudo systemctl daemon-reexec && sudo systemctl daemon-reload
-sudo systemctl enable --now forgor-digest.timer
-
-5. Logging & Debugging Digest Jobs
-
-Check if the timer is active:
-
-systemctl status forgor-digest.timer
-systemctl list-timers | grep forgor-digest
-
-
-Check last run of the service:
-
-systemctl status forgor-digest.service
-
-
-Show logs (live tail):
-
-journalctl -u forgor-digest.service -f
-
-
-Run digest manually (for debugging):
-
-sudo systemctl start forgor-digest.service
-
-
-Inspect only recent logs (last 50 lines):
-
-journalctl -u forgor-digest.service -n 50
-
-
-If your Python script uses print() or logging, output will appear here automatically.
-Optionally, also log to a file in /var/log/forgor-digest.log.
-
-### 4. Watchdog (Auto-Restart Flask)
-
-#### Place Script
-
-```bash
-sudo mkdir -p /opt/flask_watchdog
-sudo cp watch_flask_restart.py /opt/flask_watchdog/
-sudo chmod +x /opt/flask_watchdog/watch_flask_restart.py
-```
-
-#### Create Service
-
-```bash
-sudo nano /etc/systemd/system/flask-watchdog.service
-```
-
-#### Enable & Start
-
-```bash
-sudo systemctl daemon-reexec
-sudo systemctl daemon-reload
-sudo systemctl enable flask-watchdog.service
-sudo systemctl start flask-watchdog.service
-```
-
-#### Check Logs
-
-```bash
-sudo systemctl status flask-watchdog
-tail -f /var/log/flask_watchdog.log
-journalctl -u flask-watchdog.service
-```
-
----
 
 ### 5. NGINX + HTTPS
 
@@ -352,22 +252,6 @@ sudo certbot renew --dry-run
   ```bash
   sudo systemctl daemon-reexec && sudo systemctl daemon-reload
   sudo systemctl restart forgor-api.service
-  ```
-
----
-
-### Watchdog Service
-
-* Status:
-
-  ```bash
-  sudo systemctl status flask-watchdog
-  ```
-* Logs:
-
-  ```bash
-  journalctl -u flask-watchdog.service -n 50 -f
-  tail -f /var/log/flask_watchdog.log
   ```
 
 ---
