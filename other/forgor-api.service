@@ -1,3 +1,5 @@
+# etc/systemd/system/forgor-api.service
+
 [Unit]
 Description=Gunicorn for FORGOR API
 After=network.target
@@ -6,7 +8,7 @@ After=network.target
 User=root
 WorkingDirectory=/root/projects/BUILDMODE-Server
 Environment="PATH=/root/projects/BUILDMODE-Server/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/root/projects/BUILDMODE-Server/env/bin/gunicorn --workers 4 --bind 0.0.0.0:5000 --capture-output --log-level warning --timeout:90 app:app --forwarded-allow-ips="*"
+ExecStart=/root/projects/BUILDMODE-Server/env/bin/gunicorn --workers 4 --bind 127.0.0.1:5000 --capture-output --log-level warning --timeout 90 app:app --forwarded-allow-ips="*"
 StandardOutput=journal
 StandardError=journal
 Restart=always

@@ -1,0 +1,12 @@
+# etc/systemd/system/forgor-summary.timer
+
+[Unit]
+Description=Trigger FORGOR summary service daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=forgor-summary.service
+
+[Install]
+WantedBy=timers.target

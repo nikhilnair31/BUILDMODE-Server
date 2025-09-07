@@ -1,7 +1,7 @@
-# etc/systemd/system/forgor-digest.timer
+# etc/systemd/system/forgor-summary.service
 
 [Unit]
-Description=Send FORGOR morning URL digests
+Description=Send FORGOR summaries
 After=network.target
 
 [Service]
@@ -9,7 +9,7 @@ User=root
 Type=oneshot
 WorkingDirectory=/root/projects/BUILDMODE-Server
 Environment=PYTHONPATH=/root/projects/BUILDMODE-Server
-ExecStart=/root/projects/BUILDMODE-Server/env/bin/python services/digest.py
+ExecStart=/root/projects/BUILDMODE-Server/env/bin/python services/summary.py
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure

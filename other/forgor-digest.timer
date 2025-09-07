@@ -1,9 +1,12 @@
+# etc/systemd/system/forgor-digest.timer
+
 [Unit]
-Description=Run digest job daily
+Description=Trigger FORGOR summary service every 10 min
 
 [Timer]
-OnCalendar=daily
+OnCalendar=*:0/10
 Persistent=true
+Unit=forgor-digest.service
 
 [Install]
 WantedBy=timers.target
