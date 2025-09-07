@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 SERVER_URL = os.getenv("SERVER_URL")
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_digest.html"
+DIGEST_TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_digest.html"
 
 def get_all_data(user_id):
     # Current period rows (full)
@@ -229,7 +229,7 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     replacements["[UNSUB_URL]"] = unsubscribe_url
 
     # Load template
-    with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
+    with open(DIGEST_TEMPLATE_PATH, "r", encoding="utf-8") as f:
         html_template = f.read()
 
     # Replace placeholders
@@ -274,7 +274,7 @@ def run_once():
             logger.info(f"Sending digest to {user.username} ({user.email})")
 
             unsub_token = make_unsub_token(user.id, user.email, "digest")
-            unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={unsub_token}"
+            unsubscribe_url = f"{SERVER_URL}/api/unsubscribe?t={unsub_token}"
             digest_html, inline_images = generate_digest(user.id, unsubscribe_url)
             
             if digest_html:

@@ -7,12 +7,12 @@ from functools import lru_cache
 from flask import request, jsonify
 from core.utils.config import Config
 from core.database.database import get_db_session
-from core.database.models import LinkInteraction, PostInteraction, User, DataEntry
+from core.database.models import User, DataEntry
 from core.ai.ai import call_vec_api
 from core.utils.logs import error_response
 from core.utils.decoraters import token_required
 from core.utils.cache import query_cache, get_cache_key
-from core.content.parser import extract_time_filter, sanitize_tsquery
+from core.content.parser import extract_time_filter
 
 logger = logging.getLogger(__name__)
 
@@ -330,101 +330,3 @@ def check_text(current_user):
 
     query_cache[cache_key] = result_json
     return jsonify(result_json)
-
-# ---------------------------------- INTERRACTION ------------------------------------
-
-@query_bp.route('/insert-post-interaction', methods=['PUT'])
-# @limiter.limit("1 per second")
-@token_required
-def insert_post_interaction(current_user):
-    logger.info(f"Inserting post interaction for: {current_user.id}")
-
-    session = get_db_session()
-    try:
-        user = session.query(User).get(current_user.id)
-        if not user:
-            e = f"User ID {current_user.id} not found"
-            logger.error(e)
-            return error_response(e, 404)
-
-        data = request.get_json(silent=True) or {}
-        logger.info(f"data: {data}")
-        try:
-            file_id = int(data.get("fileId", 0))
-        except (TypeError, ValueError):
-            return error_response("Invalid or missing 'fileId'", 400)
-
-        query_text = (data.get("query") or "").strip()
-        if not query_text:
-            return error_response("Missing 'query' field", 400)
-
-        # Ensure referenced data entry exists
-        data_entry = session.query(DataEntry).get(file_id)
-        if not data_entry:
-            return error_response(f"Data entry {file_id} not found", 404)
-
-        # Create new interaction
-        interaction = PostInteraction(
-            user_id=user.id,
-            data_id=data_entry.id,
-            user_query=query_text,
-        )
-        session.add(interaction)
-        session.commit()
-
-        logger.info(f"Inserted post interaction {interaction.id} for user {user.id}")
-        return {"message": "Inserted of post interaction", "id": interaction.id}, 200
-
-    except Exception as e:
-        logger.error(f"Error inserting post interaction for {current_user.id}: {e}")
-        session.rollback()
-        return error_response("Failed to inserting post interaction", 500)
-
-    finally:
-        session.close()
-
-@query_bp.route('/insert-link-interaction', methods=['PUT'])
-# @limiter.limit("1 per second")
-@token_required
-def insert_link_interaction(current_user):
-    logger.info(f"Inserting link interaction for: {current_user.id}")
-
-    session = get_db_session()
-    try:
-        user = session.query(User).get(current_user.id)
-        if not user:
-            e = f"User ID {current_user.id} not found"
-            logger.error(e)
-            return error_response(e, 404)
-
-        data = request.get_json(silent=True) or {}
-        logger.info(f"data: {data}")
-
-        try:
-            user_id = int(data.get("user_id", 0))
-        except (TypeError, ValueError):
-            return error_response("Invalid or missing 'url'", 400)
-        
-        try:
-            url = (data.get("url") or "").strip()
-        except (TypeError, ValueError):
-            return error_response("Missing 'url' field", 400)
-
-        # Create new interaction
-        interaction = LinkInteraction(
-            user_id=user.id,
-            digest_url=url,
-        )
-        session.add(interaction)
-        session.commit()
-
-        logger.info(f"Inserted link interaction {interaction.id} for user {user.id}")
-        return {"message": "Inserted of link interaction", "id": interaction.id}, 200
-
-    except Exception as e:
-        logger.error(f"Error inserting link interaction for {current_user.id}: {e}")
-        session.rollback()
-        return error_response("Failed to inserting link interaction", 500)
-
-    finally:
-        session.close()
