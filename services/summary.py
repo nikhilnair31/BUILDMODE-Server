@@ -9,7 +9,7 @@ from typing import List, Tuple
 from sqlalchemy import func, and_, create_engine
 from core.content.images import create_pinterest_mosaic
 from core.database.models import DataEntry, User
-from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
+from core.notifications.emails import is_valid_email, make_link_token, send_email
 from core.utils.config import Config
 from core.ai.ai import call_gemini_with_text
 
@@ -172,7 +172,7 @@ def run_once():
         if due:
             logger.info(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
-            token = make_unsubscribe_token(user.id, user.email, "summary")
+            token = make_link_token(user.id, user.email, "summary")
             unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
             summary_content, inline_images = generate_summary(user_id=user.id, unsubscribe_url=unsubscribe_url, period=freq_name)
             

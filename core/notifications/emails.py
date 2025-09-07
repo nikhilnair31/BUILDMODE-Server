@@ -1,7 +1,7 @@
 # emails.py
 
-from email.utils import formataddr
 import os, logging, re, smtplib, traceback
+from email.utils import formataddr
 from io import BytesIO
 from email import encoders
 from email.mime.base import MIMEBase
@@ -12,10 +12,12 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
-SMTP_SERVER         = os.getenv("SMTP_SERVER")
 SMTP_PORT           = int(os.getenv("SMTP_PORT", "2525"))
+SMTP_SERVER         = os.getenv("SMTP_SERVER")
 SMTP_USER           = os.getenv("SMTP2GO_SMTP_USER")
 SMTP_PASS           = os.getenv("SMTP2GO_SMTP_PASS")
 APP_SECRET          = os.getenv("APP_SECRET_KEY")
@@ -28,11 +30,16 @@ assert SMTP_USER and SMTP_PASS, "Missing SMTP2GO_SMTP_USER/SMTP2GO_SMTP_PASS"
 
 # ---------------------------------- UNSUBS ------------------------------------
 
-def make_unsubscribe_token(user_id: int, email: str, source: str) -> str:
+def make_click_token(user_id: int, url: str, source: str = "digest") -> str:
     s = URLSafeTimedSerializer(APP_SECRET)
-    return s.dumps({"uid": user_id, "e": email, "s": source})
+    payload = {"uid": user_id, "url": url, "s": source}
+    return s.dumps(payload)
+def make_unsub_token(user_id: int, email: str, source: str) -> str:
+    s = URLSafeTimedSerializer(APP_SECRET)
+    payload = {"uid": user_id, "e": email, "s": source}
+    return s.dumps(payload)
 
-def verify_unsubscribe_token(token: str, max_age: int = 60*60*24*30):
+def verify_link_token(token: str, max_age: int = 60*60*24*30):
     s = URLSafeTimedSerializer(APP_SECRET)
     try:
         return s.loads(token, max_age=max_age)

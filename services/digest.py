@@ -1,18 +1,20 @@
 # digest.py
 
-import ast, json, logging, re, requests, yaml
+import os, ast, json, logging, re, requests, yaml
 from linkpreview import link_preview
 from collections import Counter, defaultdict
 from datetime import datetime, time, UTC, timedelta, timezone
 from pathlib import Path
 from typing import List
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from sqlalchemy import and_, create_engine
 from sqlalchemy.orm import sessionmaker
 from core.ai.ai import call_gemini_with_text, get_exa_search
+from core.database.database import get_db_session
 from core.database.models import DataEntry, User
-from core.notifications.emails import is_valid_email, make_unsubscribe_token, send_email
+from core.notifications.emails import is_valid_email, make_click_token, make_unsub_token, send_email
 from core.utils.config import Config
 
 load_dotenv()
@@ -20,8 +22,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
-engine = create_engine(Config.ENGINE_URL)
-Session = sessionmaker(bind=engine)
+SERVER_URL = os.getenv("SERVER_URL")
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_digest.html"
@@ -40,7 +41,7 @@ def get_all_data(user_id):
 
     return now_rows
 
-def build_tags_yaml(now_rows, now=None, top_k_similar=3):
+def build_tags_yaml(now_rows, now=None, top_k_similar=10):
     now = now or datetime.now(timezone.utc)
 
     def to_dt(ts):
@@ -143,7 +144,7 @@ def build_tags_yaml(now_rows, now=None, top_k_similar=3):
     # Sort by total frequency desc, then tag asc
     items.sort(key=lambda x: (-x["total_freq"], x["tag"]))
 
-    out = {"tags_summary": items}
+    out = {"tags_summary": items[:10]}
     return yaml.safe_dump(out, sort_keys=False)
 
 def get_ai_search(now_rows: List[DataEntry]):
@@ -162,7 +163,7 @@ def get_ai_search(now_rows: List[DataEntry]):
 
     return search_result_out
 
-def build_user_urls(search_results, inline_images: dict) -> str:
+def build_user_urls(user_id: int, search_results, inline_images: dict) -> str:
     if not search_results:
         return "<li>No links saved recently</li>"
 
@@ -189,10 +190,14 @@ def build_user_urls(search_results, inline_images: dict) -> str:
             except Exception:
                 pass
 
+        # tracked redirect
+        link_token = make_click_token(user_id=user_id, url=url, source="digest")
+        tracked_url = f"{SERVER_URL}/api/click?t={quote(link_token)}"
+
         # Build HTML card for each link
         block = f"""
         <div style="margin-bottom:16px; list-style:none;">
-            <a href="{url}" style="color:#deff96; font-weight:bold; font-size:15px; text-decoration:none;">{title}</a><br>
+            <a href="{tracked_url}" style="color:#deff96; font-weight:bold; font-size:15px; text-decoration:none;">{title}</a><br>
             <span style="color:#bbb; font-size:13px;">{desc}</span><br>
             {f'<img src="cid:{cid}" alt="" style="max-width:100%; margin-top:8px;">' if cid else ""}
         </div>
@@ -213,7 +218,7 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     search_res = get_ai_search(now_rows)
 
     # User URLs
-    k, v = build_user_urls(search_res, inline_images)
+    k, v = build_user_urls(user_id, search_res, inline_images)
     replacements[k] = v
 
     # add icon
@@ -264,12 +269,12 @@ def run_once():
         due = False
         due = in_window and (last_sent_dt.date() < local_now.date())
 
-        # due = True
+        due = True
         if due:
             logger.info(f"Sending digest to {user.username} ({user.email})")
 
-            token = make_unsubscribe_token(user.id, user.email, "digest")
-            unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
+            unsub_token = make_unsub_token(user.id, user.email, "digest")
+            unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={unsub_token}"
             digest_html, inline_images = generate_digest(user.id, unsubscribe_url)
             
             if digest_html:
@@ -281,14 +286,14 @@ def run_once():
                     unsubscribe_url = unsubscribe_url
                 )
             else:
-                logger.warning(f"No digest content generated for {user.username}")
+                logger.info(f"No digest content generated for {user.username}")
 
             # update last sent timestamp
             now_ts = int(now_dt.timestamp())
             user.last_digest_sent = now_ts
             session.add(user)
         else:
-            logger.debug(f"Summary not due for {user.username} ({user.email})")
+            logger.info(f"Summary not due for {user.username} ({user.email})")
 
     session.commit()
     session.close()
@@ -296,7 +301,7 @@ def run_once():
 # ---------- Run directly ----------
 
 if __name__ == "__main__":
-    session = Session()
+    session = get_db_session()
     
     try:
         run_once()

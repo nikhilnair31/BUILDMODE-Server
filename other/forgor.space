@@ -1,3 +1,5 @@
+# etc/nginx/sites-available/forgor.space
+
 server {
     server_name forgor.space www.forgor.space;
 
@@ -27,6 +29,13 @@ server {
         limit_req zone=website_limit burst=10 nodelay;
     }
 
+    location = /api/unsubscribe {
+        proxy_pass http://127.0.0.1:5000;
+    }
+    location = /api/click {
+        proxy_pass http://127.0.0.1:5000;
+    }
+
     location ~ ^/api/get_thumbnail/ {
         # Rate limit
         limit_req zone=thumb_limit burst=10;
@@ -49,7 +58,7 @@ server {
 
     location /api/ {
         # Apply the API-specific (harsher) rate limit here
-        limit_req zone=api_limit burst=5 nodelay;
+        limit_req zone=api_limit burst=15 nodelay;
 
         # Block scraping
         if ($http_user_agent ~* (curl|wget|bot|scrapy|python-requests)) {

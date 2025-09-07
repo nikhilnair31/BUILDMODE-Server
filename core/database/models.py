@@ -65,7 +65,7 @@ class DataEntry(Base):
 class PostInteraction(Base):
     __tablename__ = 'post_interactions'
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     data_id = Column(Integer, ForeignKey('data.id'))
     user_query = Column(String)
@@ -73,7 +73,7 @@ class PostInteraction(Base):
 class LinkInteraction(Base):
     __tablename__ = 'link_interactions'
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     digest_url = Column(String)
 

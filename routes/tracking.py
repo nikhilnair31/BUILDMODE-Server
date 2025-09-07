@@ -1,30 +1,29 @@
-# unsub.py
+# tracking.py
 
 import logging
 from pathlib import Path
-from routes import unsub_bp
-from flask import request, abort, make_response
-from sqlalchemy.orm import Session
-from core.notifications.emails import verify_unsubscribe_token
-from core.database.models import User
-from core.database.database import engine, get_db_session  # or your session factory
+from routes import tracking_bp
+from flask import request, abort, make_response, redirect
+from core.notifications.emails import verify_link_token
+from core.database.models import LinkInteraction, User
+from core.database.database import get_db_session  # or your session factory
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_ubsub.html"
 
-@unsub_bp.route("/unsubscribe", methods=["GET","POST","HEAD","OPTIONS"])
+@tracking_bp.route("/unsubscribe", methods=["GET","POST","HEAD","OPTIONS"])
 def unsubscribe():
     token = request.args.get("t")
     if not token:
         abort(400, "Missing token")
 
-    data = verify_unsubscribe_token(token)
+    data = verify_link_token(token)
     if not data:
         abort(400, "Invalid or expired token")
 
-    uid = data["uid"]
+    uid = int(data["uid"])
     email = data["e"]
     source = data["s"]
     
@@ -60,3 +59,36 @@ def unsubscribe():
         session.close()
     
     return resp
+
+@tracking_bp.route("/click", methods=["GET","POST","HEAD","OPTIONS"])
+def track_click():
+    token = request.args.get("t")
+    if not token:
+        abort(400, "Missing token")
+    logger.info(f"token: {token}")
+    
+    data = verify_link_token(token)
+    if not data:
+        abort(400, "Invalid or expired token")
+    logger.info(f"data: {data}")
+
+    uid = int(data["uid"])
+    url = data["url"]
+
+    session = get_db_session()
+    try:
+        li = LinkInteraction(
+            user_id=uid, 
+            digest_url=url
+        )
+        logger.info(f"li: {li}")
+        session.add(li)
+        session.commit()
+    
+    except Exception:
+        session.rollback()
+    
+    finally:
+        session.close()
+
+    return redirect(url, code=302)

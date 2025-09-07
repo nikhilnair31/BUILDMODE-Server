@@ -42,7 +42,8 @@ def apply_middleware(app):
     # Before Request
     @app.before_request
     def restrict_headers():
-        if request.path.startswith("/api/get_file") or request.path.startswith("/api/get_thumbnail") or request.path.startswith("/api/unsubscribe"):
+        if request.path.startswith("/api/get_file") or request.path.startswith("/api/get_thumbnail") \
+            or request.path.startswith("/api/unsubscribe") or request.path.startswith("/api/click"):
             return
 
         # logger.info(f'request.path: {request.path}')
