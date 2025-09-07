@@ -4,10 +4,23 @@ import re, pytz, logging
 from timefhuman import timefhuman, tfhConfig
 from datetime import datetime
 
+from core.content.images import hex_to_rgb
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 config = tfhConfig(return_matched_text=True)
+
+CSS_COLOR_HEX = {
+    # core CSS colors (subset; add more as needed)
+    "black":"#000000","white":"#ffffff","red":"#ff0000","green":"#008000","blue":"#0000ff",
+    "yellow":"#ffff00","cyan":"#00ffff","magenta":"#ff00ff","purple":"#800080","orange":"#ffa500",
+    "pink":"#ffc0cb","brown":"#a52a2a","gray":"#808080","grey":"#808080","teal":"#008080",
+    "navy":"#000080","maroon":"#800000","olive":"#808000","lime":"#00ff00","indigo":"#4b0082",
+    "violet":"#ee82ee","gold":"#ffd700","silver":"#c0c0c0","beige":"#f5f5dc","coral":"#ff7f50",
+    "salmon":"#fa8072","tan":"#d2b48c","turquoise":"#40e0d0","lavender":"#e6e6fa"
+}
+HEX_PATTERN = re.compile(r'#?[0-9a-fA-F]{6}\b')
 
 def timezone_to_start_of_day_ts(tz_name):
     try:
@@ -125,3 +138,25 @@ def extract_time_filter(query_text: str):
         time_filter = None  # skip weird outputs for now
 
     return cleaned_text, time_filter
+
+def extract_color_filter(query_text: str):
+    if not query_text:
+        return query_text, None
+
+    # --- check for hex code ---
+    m = HEX_PATTERN.search(query_text)
+    if m:
+        rgb = hex_to_rgb(m.group(0))
+        # keep as RGB if you don’t have Lab conversion yet
+        return (query_text[:m.start()] + query_text[m.end():]).strip(), [*rgb]
+
+    # --- check for color names ---
+    tokens = re.findall(r'[a-zA-Z]+', query_text)
+    for t in tokens:
+        name = t.lower()
+        if name in CSS_COLOR_HEX:
+            rgb = hex_to_rgb(CSS_COLOR_HEX[name])
+            cleaned = re.sub(r'\b' + re.escape(t) + r'\b', ' ', query_text, count=1).strip()
+            return cleaned, [*rgb]
+
+    return query_text, None

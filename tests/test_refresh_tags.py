@@ -48,7 +48,7 @@ def _process_entry(entry_id: int) -> tuple[int, bool, str]:
             return (entry_id, False, "Compression failed")
 
         # LLM tags
-        b64_img = [encode_image_to_base64(new_path)]
+        b64_img = encode_image_to_base64(new_path)
         tags = call_llm_api(b64_img)
         if not tags:
             return (entry_id, False, "LLM extraction failed")

@@ -2,6 +2,7 @@
 
 import os, logging, traceback
 from sqlalchemy import text
+from core.content.parser import extract_color_filter
 from routes import query_bp
 from functools import lru_cache
 from flask import request, jsonify
@@ -112,11 +113,15 @@ def query(current_user):
     
     query_wo_time_text, time_filter = extract_time_filter(query_text)
     logger.info(f"query_wo_time_text: {query_wo_time_text} - time_filter: {time_filter}")
+    
+    query_wo_col_text, color_lab = extract_color_filter(query_wo_time_text)
+    has_color = color_lab is not None
+    logger.info(f"query_wo_col_text: {query_wo_col_text} - color_lab: {color_lab} - has_color: {has_color}")
 
-    cleaned_query_text = sanitize_tsquery(query_wo_time_text) if query_wo_time_text else ""
-    logger.info(f"cleaned_query_text: {cleaned_query_text}")
+    struc_query_text = sanitize_tsquery(query_wo_col_text) if query_wo_col_text else ""
+    logger.info(f"struc_query_text: {struc_query_text}")
 
-    vec_query = cached_call_vec_api(query_wo_time_text) if query_wo_time_text else None
+    vec_query = cached_call_vec_api(query_wo_col_text) if query_wo_col_text else None
 
     sql = text("""
         WITH bounds AS (
@@ -130,34 +135,47 @@ def query(current_user):
         fts_leg AS (
             SELECT d.id
             FROM data d
-            WHERE d.user_id = :userid
-            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
-            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
-            AND :fts_query <> ''
-            AND ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) >= 0.05
+            WHERE 
+                d.user_id = :userid
+                AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+                AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+                AND :fts_query <> ''
+                AND ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) >= 0.05
         ),
         -- Vector leg
         vec_leg AS (
             SELECT d.id
             FROM data d
-            WHERE d.user_id = :userid
-            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
-            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
-            AND :vec_query IS NOT NULL
-            AND (d.tags_vector <=> (:vec_query)::vector) <= 1
+            WHERE 
+                d.user_id = :userid
+                AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+                AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+                AND :vec_query IS NOT NULL
+                AND (d.tags_vector <=> (:vec_query)::vector) <= 1
         ),
         -- Trigram leg
         trgm_leg AS (
             SELECT d.id
             FROM data d
-            WHERE d.user_id = :userid
-            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
-            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
-            AND :trgm_query <> ''
-            AND GREATEST(
-                    word_similarity(lower(d.tags), lower(:trgm_query)),
-                    similarity(lower(d.tags),      lower(:trgm_query))
-                ) >= 0.01
+            WHERE 
+                d.user_id = :userid
+                AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+                AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+                AND :trgm_query <> ''
+                AND GREATEST(
+                        word_similarity(lower(d.tags), lower(:trgm_query)),
+                        similarity(lower(d.tags),      lower(:trgm_query))
+                    ) >= 0.01
+        ),
+        color_leg AS (
+            SELECT 
+                dc.data_id AS id,
+                MIN(dc.color_vector <-> (:color_lab)::vector) AS dist
+            FROM data_color dc
+            WHERE 
+                :has_color = TRUE
+                AND dc.color_vector IS NOT NULL
+            GROUP BY dc.data_id
         ),
         candidates AS (
             SELECT id FROM fts_leg
@@ -165,6 +183,8 @@ def query(current_user):
             SELECT id FROM vec_leg
             UNION
             SELECT id FROM trgm_leg
+            UNION
+            SELECT id FROM color_leg
         ),
         scored AS (
             SELECT 
@@ -187,15 +207,17 @@ def query(current_user):
                 CASE 
                     WHEN :trgm_query <> '' 
                     THEN GREATEST(
-                            word_similarity(lower(d.tags), lower(:trgm_query)),
-                            similarity(lower(d.tags),      lower(:trgm_query))
-                        )
+                        word_similarity(lower(d.tags), lower(:trgm_query)),
+                        similarity(lower(d.tags),      lower(:trgm_query))
+                    )
                     ELSE 0
                 END AS trgm_sim,
+                cl.dist AS color_dist,
                 (d.timestamp - b.min_ts)::float / NULLIF(b.max_ts - b.min_ts, 0) AS recency
             FROM data d
             JOIN candidates c ON c.id = d.id
             CROSS JOIN bounds b
+            LEFT JOIN color_leg cl ON cl.id = d.id
         )
         SELECT
             id,
@@ -203,33 +225,38 @@ def query(current_user):
             thumbnail_path,
             tags,
             timestamp,
+            
             converted_date,
             text_rank,
             distance,
             trgm_sim,
+            color_dist,
             recency,
-            (0.40 * text_rank)
-        + (0.46 * (1 - LEAST(distance, 1)))
-        + (0.10 * trgm_sim)
-        + (0.04 * recency) AS hybrid_score
+            (0.35 * text_rank)
+            + (0.38 * (1 - LEAST(distance, 1)))
+            + (0.10 * trgm_sim)
+            + (0.04 * recency)
+            + (0.13 * (CASE WHEN :has_color = TRUE THEN 1 - LEAST(color_dist/100.0,1) ELSE 0 END)) AS hybrid_score
         FROM scored
         ORDER BY hybrid_score DESC
         LIMIT 1000
     """)
     params = {
         "userid": userid,
-        "fts_query": cleaned_query_text,
-        "trgm_query": query_wo_time_text,
+        "fts_query": struc_query_text,
+        "trgm_query": query_wo_col_text,
         "vec_query": vec_query,
         "start_ts": time_filter[0] if time_filter else None,
-        "end_ts": time_filter[1] if time_filter else None
+        "end_ts": time_filter[1] if time_filter else None,
+        "has_color": has_color,
+        "color_lab": color_lab if color_lab else [0,0,0],
     }
 
     result = session.execute(sql, params).fetchmany(1000)
     logger.info(f"len result: {len(result)}\n")
     # logger.info(f"result\n")
-    # for i, row in enumerate(result):
-    #     logger.info(f"{i}\n{row}\n{"-"*60}")
+    for i, row in enumerate(result[:10]):
+        logger.info(f"{i}\n{row}\n{"-"*60}")
 
     result_json = {
         "results": [

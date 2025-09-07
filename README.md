@@ -11,9 +11,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
     - Maybe a graph
     - Track recency for decay and frequency for interest signals
     - Track in vector space for topic clusters
-- [ ] Fix querying
-    - Fix including booleans
-    - Add color parsing?
 - [ ] Create nudges system
 
 ## Setup
@@ -122,6 +119,7 @@ sudo systemctl daemon-reexec && sudo systemctl daemon-reload
 sudo systemctl enable forgor-api.service
 sudo systemctl start forgor-api.service
 sudo systemctl restart forgor-api.service
+sudo journalctl -u forgor-api.service -f
 ```
 
 #### Check Logs

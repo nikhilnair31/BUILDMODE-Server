@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------- GENERATE ------------------------------------
  
-def call_llm_api(image_list, sys_prompt=Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT, temp=0.2):
+def call_llm_api(image_b64, sys_prompt=Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT, temp=0.2):
     print(f"LLM...")
 
-    return call_gemini_with_images(image_list, sys_prompt, temp)
+    return call_gemini_with_images(image_b64, sys_prompt, temp)
 
-def call_gemini_with_images(image_list, sys_prompt, temp):
+def call_gemini_with_images(image_b64, sys_prompt, temp):
     print(f"Calling Gemini generate...")
 
     try:
@@ -30,7 +30,7 @@ def call_gemini_with_images(image_list, sys_prompt, temp):
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
-                types.Part.from_bytes(data=b64, mime_type="image/jpeg") for b64 in image_list
+                types.Part.from_bytes(data=image_b64, mime_type="image/jpeg")
             ],
             config=types.GenerateContentConfig(
                 system_instruction=sys_prompt,

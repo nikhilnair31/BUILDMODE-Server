@@ -4,16 +4,12 @@ import time, os, shutil, logging, base64, traceback
 from core.utils.config import Config
 from concurrent.futures import ThreadPoolExecutor
 from core.database.database import get_db_session
-from core.database.models import StagingEntry, DataEntry, ProcessingStatus
-from core.content.images import compress_image, generate_thumbnail
+from core.database.models import DataColor, StagingEntry, DataEntry, ProcessingStatus
+from core.content.images import call_col_vec, compress_image, encode_image_to_base64, generate_thumbnail
 from core.ai.ai import call_llm_api, call_vec_api
 
 logger = logging.getLogger(__name__)
 executor = ThreadPoolExecutor(max_workers=4)
-
-def encode_image_to_base64(path):
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
 
 def process_entry_async(staging_entry_id):
     executor.submit(_process_entry, staging_entry_id)
@@ -44,25 +40,37 @@ def _process_entry(entry_id):
             logger.info("Source and destination paths are the same; skipping copy.")
 
         if source_type in ['image', 'imageurl']:
+            # Compress the image
             with open(final_filepath, "rb") as f:
-                new_filepath = compress_image(f)
-                if not new_filepath:
-                    raise Exception("Compression failed; new_filepath is None")
+                if not (new_filepath := compress_image(f)):
+                    raise Exception("Compression failed")
+            
+            # Generate thumbnail for the image
+            thumbnail_path = generate_thumbnail(new_filepath)
 
-            image_base64 = [encode_image_to_base64(new_filepath)]
+            # Encode the image
+            image_base64 = encode_image_to_base64(new_filepath)
+
+            # Extract information for the posts
             extracted_content = call_llm_api(
-                image_list=image_base64
+                image_b64=image_base64
             )
+
+            # Vectorize the info
             tags_vector = call_vec_api(
                 query_text=extracted_content, 
                 task_type="RETRIEVAL_DOCUMENT"
             )
-            thumbnail_path = generate_thumbnail(new_filepath)
+
+            # Vectorize the info
+            color_vectors = call_col_vec(extracted_content)
+            
             final_filepath = new_filepath
 
         else:
             raise Exception(f"Unsupported source_type: {source_type}")
 
+        # Save main entry
         data_entry = DataEntry(
             user_id=user_id,
             file_path=final_filepath,
@@ -72,6 +80,16 @@ def _process_entry(entry_id):
             timestamp=int(time.time())
         )
         session.add(data_entry)
+        session.commit()
+
+        # Save per-color entries
+        for col in color_vectors:
+            dc = DataColor(
+                data_id=data_entry.id,
+                color_hex=col["hex"],
+                color_vector=col["lab"]
+            )
+            session.add(dc)
 
         staging_entry.status = ProcessingStatus.COMPLETED
         session.commit()

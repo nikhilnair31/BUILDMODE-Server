@@ -1,12 +1,8 @@
 # image.py
 
-import io
-import math
-import os
-from typing import List, Optional
-import uuid
-import logging
+import json, base64, io, math, os, uuid, logging
 from typing import Tuple
+from typing import List, Optional
 from core.utils.config import Config
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -14,13 +10,12 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def compress_image(tempfile, max_size_kb=500):
-    """
-    Compress an image to be under max_size_kb, preferring JPEG output.
-    Uses binary search on quality for speed.
-    """
-    logger.info(f"Compressing image at {tempfile}")
+def encode_image_to_base64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
+def compress_image(tempfile, max_size_kb=500):
+    logger.info(f"Compressing image at {tempfile}")
     try:
         temp_path = tempfile.name if hasattr(tempfile, "name") else tempfile
         file_name = os.path.basename(temp_path)
@@ -75,7 +70,6 @@ def compress_image(tempfile, max_size_kb=500):
             img.save(final_filepath, format="JPEG", quality=10, optimize=True)
             logger.warning(f"Fallback compression used for {final_filepath}")
             return final_filepath
-
     except Exception as e:
         logger.error(f"Failed to compress image at {tempfile}: {e}")
         return None
@@ -332,3 +326,42 @@ def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_heigh
     buf = io.BytesIO()
     mosaic.save(buf, format="JPEG", quality=95)
     return buf.getvalue()
+
+def tuple_to_pgvector_str(rgb_tuple):
+    return f"[{','.join(map(str, rgb_tuple))}]"
+def rgb_to_lab(r,g,b):
+    # sRGB to CIE Lab (D65)
+    def inv_gamma(u): return u/12.92 if u<=0.04045 else ((u+0.055)/1.055)**2.4
+    R,G,B = [inv_gamma(x/255.0) for x in (r,g,b)]
+    X = 0.4124564*R + 0.3575761*G + 0.1804375*B
+    Y = 0.2126729*R + 0.7151522*G + 0.0721750*B
+    Z = 0.0193339*R + 0.1191920*G + 0.9503041*B
+    X/=0.95047; Y/=1.00000; Z/=1.08883
+    def f(t): return t**(1/3) if t>0.008856 else (7.787*t+16/116)
+    fx, fy, fz = f(X), f(Y), f(Z)
+    L = 116*fy - 16
+    a = 500*(fx-fy)
+    b = 200*(fy-fz)
+    return [L,a,b]
+def hex_to_rgb(h):
+    h = h.lstrip('#')
+    return tuple(int(h[i:i+2],16) for i in (0,2,4))
+def call_col_vec(extracted_content: str):
+    try:
+        if isinstance(extracted_content, str):
+            data = json.loads(extracted_content)
+        else:
+            data = extracted_content
+    except Exception:
+        return []
+
+    colors = data.get("accent_colors", []) if isinstance(data, dict) else []
+    results = []
+    for hex_code in colors:
+        try:
+            rgb = hex_to_rgb(hex_code)
+            lab = rgb_to_lab(*rgb)
+            results.append({"hex": hex_code, "lab": lab})
+        except Exception:
+            continue
+    return results

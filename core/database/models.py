@@ -60,6 +60,14 @@ class DataEntry(Base):
     tags_vector = Column(Vector(768))
     timestamp = Column(Integer)
 
+class DataColor(Base):
+    __tablename__ = 'data_color'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    data_id = Column(Integer)
+    color_hex = Column(String)
+    color_vector = Column(Vector(3))
+
 # ---------------------------------- TRACKING ------------------------------------
 
 class PostInteraction(Base):
