@@ -327,8 +327,6 @@ def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_heigh
     mosaic.save(buf, format="JPEG", quality=95)
     return buf.getvalue()
 
-def tuple_to_pgvector_str(rgb_tuple):
-    return f"[{','.join(map(str, rgb_tuple))}]"
 def rgb_to_lab(r,g,b):
     # sRGB to CIE Lab (D65)
     def inv_gamma(u): return u/12.92 if u<=0.04045 else ((u+0.055)/1.055)**2.4

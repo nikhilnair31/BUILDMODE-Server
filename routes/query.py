@@ -167,6 +167,13 @@ def query(current_user):
                         similarity(lower(d.tags),      lower(:trgm_query))
                     ) >= 0.01
         ),
+        time_leg AS (
+            SELECT d.id
+            FROM data d
+            WHERE d.user_id = :userid
+            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+        ),
         color_leg AS (
             SELECT 
                 dc.data_id AS id,
@@ -185,6 +192,8 @@ def query(current_user):
             SELECT id FROM trgm_leg
             UNION
             SELECT id FROM color_leg
+            UNION
+            SELECT id FROM time_leg
         ),
         scored AS (
             SELECT 
