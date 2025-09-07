@@ -118,6 +118,13 @@ def query(current_user):
 
     vec_query = cached_call_vec_api(query_wo_time_text) if query_wo_time_text else None
 
+    # candidate cutoffs
+    TOP_K_FTS = 200
+    TOP_K_VEC = 200
+    TOP_K_TRGM = 200
+    FINAL_LIMIT = 1000
+    TRGM_MIN = 0.05  # coarse filter for trigram leg
+
     sql = text("""
         WITH bounds AS (
             SELECT 
@@ -126,55 +133,95 @@ def query(current_user):
             FROM data
             WHERE user_id = :userid
         ),
+        -- FTS leg
+        fts_leg AS (
+            SELECT d.id
+            FROM data d
+            WHERE d.user_id = :userid
+            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+            AND :fts_query <> ''
+            AND ts_rank(to_tsvector('english', d.tags), plainto_tsquery('english', :fts_query)) >= 0.05
+        ),
+        -- Vector leg
+        vec_leg AS (
+            SELECT d.id
+            FROM data d
+            WHERE d.user_id = :userid
+            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+            AND :vec_query IS NOT NULL
+            AND (d.tags_vector <=> (:vec_query)::vector) <= 1
+        ),
+        -- Trigram leg
+        trgm_leg AS (
+            SELECT d.id
+            FROM data d
+            WHERE d.user_id = :userid
+            AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+            AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+            AND :trgm_query <> ''
+            AND GREATEST(
+                    word_similarity(lower(d.tags), lower(:trgm_query)),
+                    similarity(lower(d.tags),      lower(:trgm_query))
+                ) >= 0.01
+        ),
+        candidates AS (
+            SELECT id FROM fts_leg
+            UNION
+            SELECT id FROM vec_leg
+            UNION
+            SELECT id FROM trgm_leg
+        ),
         scored AS (
             SELECT 
-                id,
-                file_path,
-                thumbnail_path,
-                tags,
-                timestamp, 
-                TO_TIMESTAMP(timestamp) AS converted_date,
+                d.id,
+                d.file_path,
+                d.thumbnail_path,
+                d.tags,
+                d.timestamp,
+                TO_TIMESTAMP(d.timestamp) AS converted_date,
                 CASE 
                     WHEN :fts_query <> '' 
-                    THEN ts_rank(to_tsvector('english', tags), plainto_tsquery('english', :fts_query))
-                    ELSE 1
+                    THEN ts_rank(to_tsvector('english', d.tags), plainto_tsquery('english', :fts_query))
+                    ELSE 0
                 END AS text_rank,
                 CASE 
                     WHEN :vec_query IS NOT NULL 
-                    THEN tags_vector <=> (:vec_query)::vector 
-                    ELSE 0
+                    THEN d.tags_vector <=> (:vec_query)::vector 
+                    ELSE 1
                 END AS distance,
                 CASE 
                     WHEN :trgm_query <> '' 
                     THEN GREATEST(
-                            word_similarity(lower(tags), lower(:trgm_query)),
-                            similarity(lower(tags), lower(:trgm_query))
+                            word_similarity(lower(d.tags), lower(:trgm_query)),
+                            similarity(lower(d.tags),      lower(:trgm_query))
                         )
-                    ELSE 1
+                    ELSE 0
                 END AS trgm_sim,
-                (timestamp - bounds.min_ts)::float / NULLIF(bounds.max_ts - bounds.min_ts, 0) AS recency
-            FROM data, bounds
-            WHERE
-                user_id = :userid
-                AND (
-                    (:start_ts IS NULL OR timestamp >= :start_ts)
-                    AND
-                    (:end_ts   IS NULL OR timestamp <= :end_ts)
-                )
+                (d.timestamp - b.min_ts)::float / NULLIF(b.max_ts - b.min_ts, 0) AS recency
+            FROM data d
+            JOIN candidates c ON c.id = d.id
+            CROSS JOIN bounds b
         )
-        
         SELECT
-            *,
-                (0.40 * text_rank) 
-            +   (0.46 * (1 - distance)) 
-            +   (0.10 * trgm_sim) 
-            +   (0.04 * recency) AS hybrid_score
+            id,
+            file_path,
+            thumbnail_path,
+            tags,
+            timestamp,
+            converted_date,
+            text_rank,
+            distance,
+            trgm_sim,
+            recency,
+            (0.40 * text_rank)
+        + (0.46 * (1 - LEAST(distance, 1)))
+        + (0.10 * trgm_sim)
+        + (0.04 * recency) AS hybrid_score
         FROM scored
-        WHERE
-            text_rank >= 0.05
-            and DISTANCE <= 1
-            AND trgm_sim >= 0.01
-        ORDER BY distance ASC
+        ORDER BY hybrid_score DESC
+        LIMIT 1000
     """)
     params = {
         "userid": userid,
@@ -182,7 +229,12 @@ def query(current_user):
         "trgm_query": query_wo_time_text,
         "vec_query": vec_query,
         "start_ts": time_filter[0] if time_filter else None,
-        "end_ts": time_filter[1] if time_filter else None
+        "end_ts": time_filter[1] if time_filter else None,
+        "k_fts": TOP_K_FTS,
+        "k_vec": TOP_K_VEC,
+        "k_trgm": TOP_K_TRGM,
+        "final_limit": FINAL_LIMIT,
+        "trgm_min": TRGM_MIN,
     }
 
     result = session.execute(sql, params).fetchmany(1000)

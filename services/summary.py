@@ -48,14 +48,14 @@ def get_ai_summary(now_rows: List[DataEntry], period: str):
     Provide insights to the user based on content they've saved.
     Focus on overall concepts and something out of the box.
     """
-    # logger.info(f"sys_prompt\n{sys_prompt}")
+    # print(f"sys_prompt\n{sys_prompt}")
     
     usr_prompt = str([f"{row.id} - {row.tags}" for row in now_rows])
-    # logger.info(f"usr_prompt\n{usr_prompt}")
+    # print(f"usr_prompt\n{usr_prompt}")
     
     out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
     out_html = markdown.markdown(out)
-    logger.info(f"out_html\n{out_html}")
+    print(f"out_html\n{out_html}")
     
     return ("[AI_SUMMARY]", out_html)
 
@@ -142,15 +142,15 @@ def run_once():
     for user in all_users:
         # check email validity
         if not is_valid_email(user.email):
-            logger.info(f"Skipping user {user.id}: invalid or missing email ({user.email})")
+            print(f"Skipping user {user.id}: invalid or missing email ({user.email})")
             continue
         
         # check email enabled
         if not user.summary_email_enabled:
-            logger.info(f"Skipping user {user.id} cause they have summary emails disabled")
+            print(f"Skipping user {user.id} cause they have summary emails disabled")
             continue
 
-        logger.info(f"Proceeding for user {user.id} ({user.email})")
+        print(f"Proceeding for user {user.id} ({user.email})")
 
         # decide if summary is due
         due = False
@@ -158,7 +158,7 @@ def run_once():
         freq = user.summary_frequency
         freq_name = freq.name if freq else "unspecified"
         now = int(datetime.now(UTC).timestamp())
-        logger.info(f"freq_name: {freq_name}")
+        print(f"freq_name: {freq_name}")
 
         if freq_name == "daily":
             due = now - last_sent >= 86400  # 1 day
@@ -166,11 +166,11 @@ def run_once():
             due = now - last_sent >= 604800  # 7 days
         elif freq_name == "monthly":
             due = now - last_sent >= 2592000 # ~30 days
-        logger.info(f"due: {due}")
+        print(f"due: {due}")
 
         # due = True
         if due:
-            logger.info(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
+            print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
             token = make_link_token(user.id, user.email, "summary")
             unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
@@ -191,7 +191,7 @@ def run_once():
             user.last_summary_sent = now
             session.add(user)
         else:
-            logger.info(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
+            print(f"Summary not due for {user.username} ({user.email}) [{freq_name}] - {now - last_sent}s")
 
     session.commit()
     session.close()
@@ -204,5 +204,5 @@ if __name__ == "__main__":
     try:
         run_once()
     except Exception as e:
-        logger.info(f"Error creating summary: {e}")
+        print(f"Error creating summary: {e}")
         session.close()

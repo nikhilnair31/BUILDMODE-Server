@@ -153,13 +153,13 @@ def get_ai_search(now_rows: List[DataEntry]):
     """
     
     usr_prompt = build_tags_yaml(now_rows)
-    logger.info(f"usr_prompt\n{usr_prompt}")
+    print(f"usr_prompt\n{usr_prompt}")
     
     summary_text_out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
-    # logger.info(f"summary_text_out\n{summary_text_out}")
+    # print(f"summary_text_out\n{summary_text_out}")
     
     search_result_out = get_exa_search(text = summary_text_out)
-    # logger.info(f"search_result_out\n{search_result_out}")
+    # print(f"search_result_out\n{search_result_out}")
 
     return search_result_out
 
@@ -249,10 +249,10 @@ def run_once():
         
         # check email enabled
         if not user.digest_email_enabled:
-            logger.info(f"Skipping user {user.id} cause they have digest emails disabled")
+            print(f"Skipping user {user.id} cause they have digest emails disabled")
             continue
 
-        logger.info(f"Proceeding for user {user.id} ({user.email})")
+        print(f"Proceeding for user {user.id} ({user.email})")
 
         # last digest
         tz = ZoneInfo(user.timezone) if user.timezone else ZoneInfo("America/New_York")
@@ -271,7 +271,7 @@ def run_once():
 
         # due = True
         if due:
-            logger.info(f"Sending digest to {user.username} ({user.email})")
+            print(f"Sending digest to {user.username} ({user.email})")
 
             unsub_token = make_unsub_token(user.id, user.email, "digest")
             unsubscribe_url = f"{SERVER_URL}/api/unsubscribe?t={unsub_token}"
@@ -286,14 +286,14 @@ def run_once():
                     unsubscribe_url = unsubscribe_url
                 )
             else:
-                logger.info(f"No digest content generated for {user.username}")
+                print(f"No digest content generated for {user.username}")
 
             # update last sent timestamp
             now_ts = int(now_dt.timestamp())
             user.last_digest_sent = now_ts
             session.add(user)
         else:
-            logger.info(f"Summary not due for {user.username} ({user.email})")
+            print(f"Summary not due for {user.username} ({user.email})")
 
     session.commit()
     session.close()
