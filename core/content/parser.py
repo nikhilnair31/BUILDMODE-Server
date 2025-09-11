@@ -3,8 +3,8 @@
 import re, pytz, logging
 from timefhuman import timefhuman, tfhConfig
 from datetime import datetime
-
 from core.content.images import hex_to_rgb
+from core.utils.timing import timed_route
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ CSS_COLOR_HEX = {
 }
 HEX_PATTERN = re.compile(r'#?[0-9a-fA-F]{6}\b')
 
+@timed_route("timezone_to_start_of_day_ts")
 def timezone_to_start_of_day_ts(tz_name):
     try:
         user_tz = pytz.timezone(tz_name)
@@ -37,6 +38,7 @@ def timezone_to_start_of_day_ts(tz_name):
         logger.warning(f"Invalid timezone received: {tz_name}. Defaulting to UTC.")
         return int(datetime.now(pytz.UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 
+@timed_route("sanitize_tsquery")
 def sanitize_tsquery(user_input: str) -> str:
     """
     Convert user input into a safe PostgreSQL to_tsquery string.
@@ -110,6 +112,8 @@ def sanitize_tsquery(user_input: str) -> str:
         out.pop()
 
     return " ".join(out)
+
+@timed_route("extract_time_filter")
 def extract_time_filter(query_text: str):
     if query_text is None or query_text == "":
         return query_text, None
@@ -139,6 +143,7 @@ def extract_time_filter(query_text: str):
 
     return cleaned_text, time_filter
 
+@timed_route("extract_time_filter")
 def extract_color_filter(query_text: str):
     if not query_text:
         return query_text, None

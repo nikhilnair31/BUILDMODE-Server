@@ -1,12 +1,12 @@
 # ai.py
 
-import os
-import logging
+import os, logging
 from exa_py import Exa
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from core.utils.config import Config, Content
+from core.utils.timing import timed_route
 
 load_dotenv()
 
@@ -15,11 +15,13 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------- GENERATE ------------------------------------
  
+@timed_route("call_llm_api")
 def call_llm_api(image_b64, sys_prompt=Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT, temp=0.2):
     print(f"LLM...")
 
     return call_gemini_with_images(image_b64, sys_prompt, temp)
 
+@timed_route("call_gemini_with_images")
 def call_gemini_with_images(image_b64, sys_prompt, temp):
     print(f"Calling Gemini generate...")
 
@@ -49,6 +51,7 @@ def call_gemini_with_images(image_b64, sys_prompt, temp):
         print(f"Error getting Gemini generate: {e}")
         return ""
 
+@timed_route("call_gemini_with_text")
 def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
     print(f"Calling Gemini generate...")
 
@@ -76,12 +79,14 @@ def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
 
 # ---------------------------------- EMBEDDINGS ----------------------------------
  
+@timed_route("call_vec_api")
 def call_vec_api(query_text, task_type):
     print(f"Vec...")
 
     response_json = get_gemini_embedding(query_text, task_type)
     return response_json
 
+@timed_route("get_gemini_embedding")
 def get_gemini_embedding(text, task_type):
     print(f"Getting Gemini embedding...")
     
@@ -107,6 +112,7 @@ def get_gemini_embedding(text, task_type):
 
 # ---------------------------------- SEARCH ----------------------------------
 
+@timed_route("get_exa_search")
 def get_exa_search(text):
     print(f"Getting Exa AI search...")
     

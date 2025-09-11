@@ -1,18 +1,12 @@
 # auth.py
 
-import jwt
-import datetime
-import time
-import logging
+import jwt, datetime, time, logging
 from flask import request, jsonify
 from routes import auth_bp
 from core.utils.config import Config
-from core.utils.middleware import limiter
-from core.database.models import Frequency, User, StagingEntry, DataEntry
+from core.database.models import User
 from core.database.database import get_db_session
 from core.utils.logs import error_response
-from core.utils.decoraters import token_required
-from core.utils.data import _safe_unlink
 
 logger = logging.getLogger(__name__)
 

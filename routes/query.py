@@ -1,6 +1,7 @@
 # query.py
 
 import os, logging, traceback
+from time import perf_counter
 from sqlalchemy import text
 from core.content.parser import extract_color_filter
 from routes import query_bp
@@ -11,6 +12,7 @@ from core.database.database import get_db_session
 from core.database.models import User, DataEntry
 from core.ai.ai import call_vec_api
 from core.utils.logs import error_response
+from core.utils.timing import timed_route
 from core.utils.decoraters import token_required
 from core.utils.cache import query_cache, get_cache_key
 from core.content.parser import extract_time_filter, sanitize_tsquery
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------- CACHING ------------------------------------
 
 @lru_cache(maxsize=512)
+@timed_route("cached_call_vec_api")
 def cached_call_vec_api(text_input):
     """Cached version of call_vec_api."""
     return call_vec_api(query_text=text_input, task_type = "RETRIEVAL_QUERY")
@@ -28,6 +31,7 @@ def cached_call_vec_api(text_input):
 
 @query_bp.route('/get_similar/<filename>')
 # @limiter.limit("5 per second;30 per minute")
+@timed_route("get_similar")
 @token_required
 def get_similar(current_user, filename):
     session = get_db_session()
@@ -83,9 +87,10 @@ def get_similar(current_user, filename):
 
 @query_bp.route('/query', methods=['POST'])
 # @limiter.limit("5 per second")
+@timed_route("query")
 @token_required
 def query(current_user):
-    logger.info(f"\nReceived request to query from user of id: {current_user.id}\n")
+    logger.info(f"Received request to query from user of id: {current_user.id}")
     
     data = request.json
     query_text = data.get("searchText", "").strip()
@@ -262,10 +267,10 @@ def query(current_user):
     }
 
     result = session.execute(sql, params).fetchmany(1000)
-    logger.info(f"len result: {len(result)}\n")
-    # logger.info(f"result\n")
+    logger.info(f"len result: {len(result)}")
+    # logger.info(f"result")
     for i, row in enumerate(result[:10]):
-        logger.info(f"{i}\n{row}\n{"-"*60}")
+        logger.info(f"{i}{row}{"-"*60}")
 
     result_json = {
         "results": [
@@ -286,9 +291,10 @@ def query(current_user):
 
 @query_bp.route('/check/text', methods=['POST'])
 # @limiter.limit("5 per second")
+@timed_route("check_text")
 @token_required
 def check_text(current_user):
-    logger.info(f"\nReceived request to check using text from user of id: {current_user.id}\n")
+    logger.info(f"Received request to check using text from user of id: {current_user.id}")
     
     data = request.json
     check_text = data.get("searchText", "").strip()
@@ -391,7 +397,7 @@ def check_text(current_user):
     }
 
     result = session.execute(sql, params).fetchmany(10)
-    logger.info(f"len result: {len(result)}\n")
+    logger.info(f"len result: {len(result)}")
 
     result_json = {
         "results": [
