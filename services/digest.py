@@ -15,7 +15,6 @@ from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.database import get_db_session
 from core.database.models import DataEntry, User
 from core.notifications.emails import is_valid_email, make_click_token, make_unsub_token, send_email
-from core.utils.config import Config
 
 load_dotenv()
 

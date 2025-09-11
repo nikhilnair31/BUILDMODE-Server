@@ -1,16 +1,15 @@
 # summary.py
 
-import logging, markdown
-from datetime import datetime, UTC, timedelta
+import os, logging, markdown
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
-from sqlalchemy.orm import sessionmaker
 from typing import List, Tuple
-from sqlalchemy import func, and_, create_engine
+from sqlalchemy import and_
 from core.content.images import create_pinterest_mosaic
+from core.database.database import get_db_session
 from core.database.models import DataEntry, User
-from core.notifications.emails import is_valid_email, make_link_token, send_email
-from core.utils.config import Config
+from core.notifications.emails import is_valid_email, make_unsub_token, send_email
 from core.ai.ai import call_gemini_with_text
 
 load_dotenv()
@@ -18,8 +17,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
-engine = create_engine(Config.ENGINE_URL)
-Session = sessionmaker(bind=engine)
+SERVER_URL = os.getenv("SERVER_URL")
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_summary.html"
@@ -172,8 +170,8 @@ def run_once():
         if due:
             print(f"Sending summary to {user.username} ({user.email}) [{freq_name}]")
 
-            token = make_link_token(user.id, user.email, "summary")
-            unsubscribe_url = f"https://forgor.space/api/unsubscribe?t={token}"
+            unsub_token = make_unsub_token(user.id, user.email, "digest")
+            unsubscribe_url = f"{SERVER_URL}/api/unsubscribe?t={unsub_token}"
             summary_content, inline_images = generate_summary(user_id=user.id, unsubscribe_url=unsubscribe_url, period=freq_name)
             
             if summary_content:
@@ -199,7 +197,7 @@ def run_once():
 # ---------- Run directly ----------
 
 if __name__ == "__main__":
-    session = Session()
+    session = get_db_session()
 
     try:
         run_once()
