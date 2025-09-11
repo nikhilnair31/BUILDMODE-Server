@@ -247,30 +247,23 @@ def create_crop_mosaic(image_paths: List[str], final_size: Tuple[int, int] = (90
     buf = io.BytesIO()
     mosaic.save(buf, format="JPEG", quality=95)
     return buf.getvalue()
-def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_height=200, bg_color=(255, 255, 255)):
+def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_height=200, bg_color=(30, 28, 44)):
     """
     Create a Pinterest-style mosaic (justified rows, preserving aspect ratio).
-    Last incomplete row is discarded to avoid empty space.
-
-    :param image_paths: List of file paths to images
-    :param output_path: Path to save final mosaic
-    :param final_size: (width, height) of the output canvas
-    :param target_row_height: Approximate row height for images
-    :param bg_color: Background fill color
+    Rows are centered horizontally. Last incomplete row is optionally rendered if space permits.
     """
     canvas_w, canvas_h = final_size
     valid_paths = [p for p in image_paths if p and os.path.isfile(p)]
     if not valid_paths:
-        # Return a tiny valid JPEG to avoid errors upstream
         buf = io.BytesIO()
         Image.new("RGB", (1, 1), bg_color).save(buf, format="JPEG", quality=95)
         return buf.getvalue()
-    mosaic = Image.new("RGB", final_size, bg_color)
 
+    mosaic = Image.new("RGB", final_size, bg_color)
     row, row_width = [], 0
     y_offset = 0
 
-    for path in image_paths:
+    for path in valid_paths:
         try:
             img = Image.open(path).convert("RGB")
             aspect = img.width / img.height
@@ -278,17 +271,16 @@ def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_heigh
             row.append((img, aspect))
             row_width += scaled_w
 
-            # Flush row when "full enough"
             if row_width >= canvas_w:
                 total_aspect = sum(a for _, a in row)
                 row_h = int(canvas_w / total_aspect)
-
-                # Check if this row fits vertically
                 if y_offset + row_h > canvas_h:
-                    break  # stop, no partial rows
+                    break
 
-                # Render row
-                x_offset = 0
+                # Center this row
+                total_row_w = sum(int(a * row_h) for _, a in row)
+                x_offset = (canvas_w - total_row_w) // 2
+
                 for im, aspect in row:
                     w = int(aspect * row_h)
                     resized = im.resize((w, row_h), Image.Resampling.LANCZOS)
@@ -296,33 +288,30 @@ def create_pinterest_mosaic(image_paths, final_size=(900, 600), target_row_heigh
                     x_offset += w
 
                 y_offset += row_h
-                row, row_width = [], 0  # reset
+                row, row_width = [], 0
         except Exception as e:
             print(f"Skipping {path}: {e}")
 
-    # Render leftover partial row if any space remains
+    # Render partial row if there's space
     if row and y_offset < canvas_h:
         total_aspect = sum(a for _, a in row)
         row_h = min(target_row_height, canvas_h - y_offset)
-        if row_h > 0:
-            x_offset = 0
-            for im, a in row:
-                w = int(a * row_h)
-                resized = im.resize((w, row_h), Image.Resampling.LANCZOS)
-                mosaic.paste(resized, (x_offset, y_offset))
-                x_offset += w
-            y_offset += row_h
+        total_row_w = sum(int(a * row_h) for _, a in row)
+        x_offset = (canvas_w - total_row_w) // 2
 
-    # If still nothing rendered, return tiny JPEG
+        for im, a in row:
+            w = int(a * row_h)
+            resized = im.resize((w, row_h), Image.Resampling.LANCZOS)
+            mosaic.paste(resized, (x_offset, y_offset))
+            x_offset += w
+        y_offset += row_h
+
     if y_offset <= 0:
         buf = io.BytesIO()
         Image.new("RGB", (1, 1), bg_color).save(buf, format="JPEG", quality=95)
         return buf.getvalue()
 
-    # Crop vertically to filled space
     mosaic = mosaic.crop((0, 0, canvas_w, y_offset))
-
-    # Save to bytes
     buf = io.BytesIO()
     mosaic.save(buf, format="JPEG", quality=95)
     return buf.getvalue()
