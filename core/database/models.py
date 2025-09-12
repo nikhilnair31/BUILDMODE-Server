@@ -85,7 +85,7 @@ class LinkInteraction(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     digest_url = Column(String)
-    digest_text = Column(String)
+    timestamp = Column(Integer)
     
 class LinkEntry(Base):
     __tablename__ = 'links'

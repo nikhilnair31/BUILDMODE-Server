@@ -1,6 +1,7 @@
 # tracking.py
 
 import logging
+import time as pytime
 from pathlib import Path
 from core.utils.decoraters import token_required
 from core.utils.logs import error_response
@@ -66,6 +67,8 @@ def unsubscribe():
 
 @tracking_bp.route("/click", methods=["GET","POST","HEAD","OPTIONS"])
 def track_click():
+    logger.info(f"Tracking click...")
+
     token = request.args.get("t")
     if not token:
         abort(400, "Missing token")
@@ -74,7 +77,7 @@ def track_click():
     data = verify_link_token(token)
     if not data:
         abort(400, "Invalid or expired token")
-    # logger.info(f"data: {data}")
+    logger.info(f"data: {data}")
 
     uid = int(data["uid"])
     url = data["url"]
@@ -83,7 +86,8 @@ def track_click():
     try:
         li = LinkInteraction(
             user_id=uid, 
-            digest_url=url
+            digest_url=url,
+            timestamp=int(pytime.time())
         )
         session.add(li)
         session.commit()

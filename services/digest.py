@@ -9,11 +9,11 @@ from typing import List
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from sqlalchemy import and_, create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import and_, desc
+from sqlalchemy.orm import joinedload
 from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.database import get_db_session
-from core.database.models import DataEntry, LinkEntry, User
+from core.database.models import DataEntry, LinkEntry, LinkInteraction, User
 from core.notifications.emails import is_valid_email, make_click_token, make_unsub_token, send_email
 
 load_dotenv()
@@ -48,7 +48,7 @@ Generate concise, actionable, and insightful summary emails for users based on t
 # ---------- Main Functions ----------
 
 def get_all_data(user_id):
-    # Current period rows (full)
+    # Screenshots / images
     now_rows: List[DataEntry] = session.query(DataEntry) \
         .filter(
             and_(
@@ -59,7 +59,18 @@ def get_all_data(user_id):
         .limit(1000) \
         .all()
 
-    return now_rows
+    # Clicked links + join to LinkEntry for richer text
+    recent_links = (
+        session.query(LinkInteraction, LinkEntry)
+        .join(LinkEntry, LinkInteraction.digest_url == LinkEntry.url)
+        .filter(LinkInteraction.user_id == user_id)
+        .order_by(LinkInteraction.timestamp.desc())
+        .limit(10)
+        .all()
+    )
+    print(f"recent_links\n{recent_links}")
+
+    return now_rows, recent_links
 
 def build_tags_yaml(now_rows, now=None, top_k_similar=10):
     now = now or datetime.now(timezone.utc)
@@ -167,11 +178,27 @@ def build_tags_yaml(now_rows, now=None, top_k_similar=10):
     out = {"tags_summary": items[:10]}
     return yaml.safe_dump(out, sort_keys=False)
 
-def get_ai_search(now_rows: List[DataEntry]):
+def get_ai_search(now_rows: List[DataEntry], recent_links: List[LinkInteraction]):
     usr_prompt = build_tags_yaml(now_rows)
     # print(f"usr_prompt\n{usr_prompt}")
-    
-    summary_text_out = call_gemini_with_text(sys_prompt = DIGEST_AI_SYSTEM_PROMPT, usr_prompt = usr_prompt)
+
+    # Add clicked link context
+    if recent_links:
+        clicked_summaries = []
+        for li, le in recent_links:
+            content = le.text  # prefer scraped content
+            if content:
+                cleaned = re.sub(r"\s+", " ", content.strip())
+                print(f"Clicked content: {cleaned[:200]}")
+                clicked_summaries.append(f"- {cleaned[:500]}")
+
+        if clicked_summaries:
+            usr_prompt += "\n\n## Recently Clicked Links\n" + "\n".join(clicked_summaries)
+
+    summary_text_out = call_gemini_with_text(
+        sys_prompt = DIGEST_AI_SYSTEM_PROMPT,
+        usr_prompt = usr_prompt
+    )
     # print(f"summary_text_out\n{summary_text_out}")
     
     search_result_list = get_exa_search(text = summary_text_out)
@@ -223,15 +250,15 @@ def build_user_urls(user_id: int, search_res_list, inline_images: dict) -> str:
     return ("[USER_URLS]", "\n".join(items))
 
 def generate_digest(user_id: int, unsubscribe_url: str):
-    # Get all data
-    now_rows = get_all_data(user_id)
+    # Get all data + link interactions
+    now_rows, recent_links = get_all_data(user_id)
 
     # Collect replacements
     replacements = {}
     inline_images = {}
 
-    # AI search
-    search_res_list = get_ai_search(now_rows)
+    # AI search (uploads + clicked links)
+    search_res_list = get_ai_search(now_rows, recent_links)
 
     # Saving AI search data
     for search_res in search_res_list:
