@@ -13,6 +13,20 @@ from core.utils.decoraters import token_required, get_user_upload_info
 
 logger = logging.getLogger(__name__)
 
+@users_bp.route('/frequencies', methods=['GET'])
+def get_frequencies():
+    session = get_db_session()
+    try:
+        freqs = session.query(Frequency).all()
+        return jsonify([
+            {"id": freq.id, "name": freq.name} for freq in freqs
+        ])
+    except Exception as e:
+        logger.error(f"Error fetching frequencies: {e}")
+        return error_response("Failed to fetch frequencies", 500)
+    finally:
+        session.close()
+
 @users_bp.route('/saves-left', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
@@ -169,20 +183,20 @@ def put_summary_frequency(current_user):
             return error_response(e, 404)
 
         data = request.get_json()
-        if not data or "frequency" not in data:
-            return error_response("Missing 'frequency' field", 400)
+        if not data or "frequency_id" not in data:
+            return error_response("Missing 'frequency_id' field", 400)
 
         # Look up frequency in DB
-        freq_name = data["frequency"].strip().lower()
-        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
+        freq_id = data["frequency_id"]
+        freq = session.query(Frequency).get(freq_id)
         if not freq:
-            return error_response(f"Invalid frequency '{freq_name}'", 400)
+            return error_response(f"Invalid frequency ID '{freq_id}'", 400)
 
         # Update user
-        user.summary_email_enabled = (freq.name != "none")
+        user.summary_email_enabled = (freq.name.lower() != "none")
         user.summary_frequency_id = freq.id
         session.commit()
-
+        
         logger.info(f"User {user.id} summary frequency updated to {freq.name}")
         return {"message": f"Summary frequency updated to {freq.name}"}, 200
 
@@ -209,17 +223,17 @@ def put_digest_frequency(current_user):
             return error_response(e, 404)
 
         data = request.get_json()
-        if not data or "frequency" not in data:
-            return error_response("Missing 'frequency' field", 400)
+        if not data or "frequency_id" not in data:
+            return error_response("Missing 'frequency_id' field", 400)
 
         # Look up frequency in DB
-        freq_name = data["frequency"].strip().lower()
-        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
+        freq_id = data["frequency_id"]
+        freq = session.query(Frequency).get(freq_id)
         if not freq:
-            return error_response(f"Invalid frequency '{freq_name}'", 400)
+            return error_response(f"Invalid frequency ID '{freq_id}'", 400)
 
         # Update user
-        user.digest_email_enabled = (freq.name != "none")
+        user.digest_email_enabled = (freq.name.lower() != "none")
         user.digest_frequency_id = freq.id
         session.commit()
 

@@ -1,11 +1,10 @@
 # data.py
 
 import os, time, uuid, zipfile, json, logging, tempfile, requests, traceback
-import mimetypes
 from io import BytesIO
 from routes import data_bp
 from werkzeug.utils import secure_filename
-from flask import make_response, request, jsonify, url_for, send_file, send_from_directory, abort
+from flask import request, jsonify, send_from_directory, abort
 from core.utils.cache import clear_user_cache
 from core.database.database import get_db_session
 from core.database.models import StagingEntry, DataEntry, User, ProcessingStatus
@@ -244,11 +243,11 @@ def get_thumbnail(current_user, thumbnailname):
 
 # ---------------------------------- DOWNLOADING ------------------------------------
 
-@data_bp.route('/bulk_download_all', methods=['GET'])
-@limiter.limit("1 per second")
+@data_bp.route('/data-export', methods=['GET'])
+@limiter.limit("1 per day")
 @token_required
-def bulk_download_all(current_user):
-    logger.info(f"\nBulk download for: {current_user.id}\n")
+def get_data_export(current_user):
+    logger.info(f"\nExporting data for: {current_user.id}\n")
     
     session = get_db_session()
     
@@ -298,18 +297,18 @@ def bulk_download_all(current_user):
         sent = send_email_with_zip(
             user_email=user.email,
             subject="Your FORGOR Backup",
-            body="Attached is your full FORGOR backup as requested.",
+            html_body="Attached is your full FORGOR backup as requested.",
             zip_bytes=memory_file
         )
 
         if sent:
-            return jsonify({"message": "Backup sent to your email."}), 200
+            return jsonify({"message": "Exported data sent to your email."}), 200
         else:
-            return error_response("Failed to send backup email", 500)
+            return error_response("Failed to send export email", 500)
     
     except Exception as e:
-        logger.error("Bulk download failed")
-        return error_response(f"Error bulk downloading files: {e}", 500)
+        logger.error("Export failed")
+        return error_response(f"Error exporting data files: {e}", 500)
     
     finally:
         session.close()
