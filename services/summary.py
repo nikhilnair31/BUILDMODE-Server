@@ -1,6 +1,6 @@
 # summary.py
 
-import os, logging, markdown
+import os, logging, markdown, argparse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -198,10 +198,37 @@ def run_once():
 # ---------- Run directly ----------
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force-user", type=int, help="Force send summary to a specific user ID")
+    args = parser.parse_args()
+
     session = get_db_session()
 
     try:
-        run_once()
+        if args.force_user:
+            user = session.query(User).filter_by(id=args.force_user).first()
+            if user and is_valid_email(user.email):
+                unsub_token = make_unsub_token(user.id, user.email, "summary")
+                unsubscribe_url = f"{SERVER_URL}/api/unsubscribe?t={unsub_token}"
+                summary_content, inline_images = generate_summary(user_id=user.id, unsubscribe_url=unsubscribe_url, period="daily")
+
+                if summary_content:
+                    send_email(
+                        user_email = user.email,
+                        subject = f"Your FORGOR Summary",
+                        html_body = summary_content,
+                        inline_images=inline_images,
+                        unsubscribe_url = unsubscribe_url
+                    )
+                    print(f"Forced summary sent to user {user.id} ({user.email})")
+                else:
+                    print("Summary generation failed.")
+            else:
+                print("Invalid or missing user/email.")
+        else:
+            run_once()
     except Exception as e:
-        print(f"Error creating summary: {e}")
+        logger.exception(f"Error creating summary: {e}")
+        raise
+    finally:
         session.close()
