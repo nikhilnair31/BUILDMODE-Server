@@ -20,7 +20,12 @@ logger = logging.getLogger(__name__)
 SERVER_URL = os.getenv("SERVER_URL")
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_summary.html"
+SUMMARY_TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_summary.html"
+SUMMARY_AI_SYSTEM_PROMPT = f"""
+Generate a short and impactful summary based on the user's saved posts in the past <PERIOD> period.
+Provide insights to the user based on content they've saved.
+Focus on overall concepts and something out of the box.
+"""
 
 # ---------- Main Functions ----------
 
@@ -41,11 +46,7 @@ def get_all_data(user_id, period_start, period_end):
     return now_rows
 
 def get_ai_summary(now_rows: List[DataEntry], period: str):
-    sys_prompt = f"""
-    Generate a short and impactful summary based on the user's saved posts in the past {period} period.
-    Provide insights to the user based on content they've saved.
-    Focus on overall concepts and something out of the box.
-    """
+    sys_prompt = SUMMARY_AI_SYSTEM_PROMPT.replace("<PERIOD>", period)
     # print(f"sys_prompt\n{sys_prompt}")
     
     usr_prompt = str([f"{row.id} - {row.tags}" for row in now_rows])
@@ -125,7 +126,7 @@ def generate_summary(user_id: int, unsubscribe_url: str, period="weekly"):
     replacements["[UNSUB_URL]"] = unsubscribe_url
 
     # Load template
-    with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
+    with open(SUMMARY_TEMPLATE_PATH, "r", encoding="utf-8") as f:
         html_template = f.read()
 
     # Replace placeholders

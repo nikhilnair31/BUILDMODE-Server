@@ -26,6 +26,27 @@ SERVER_URL = os.getenv("SERVER_URL")
 BASE_DIR = Path(__file__).resolve().parent
 DIGEST_TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_digest.html"
 
+DIGEST_AI_SYSTEM_PROMPT = f"""
+Generate concise, actionable, and insightful summary emails for users based on their uploaded screenshots or images, incorporating extracted information such as app name, tags, themes, moods, and OCR text. The summary should:
+
+- Focus on providing future-oriented insights or practical suggestions, not just reporting what has been submitted.
+- Be concise enough for high engagement; avoid unnecessary detail or wordiness.
+- Offer clear “jumping-off points” (e.g., ideas for new projects, potential improvements, or creative suggestions inspired by the image data).
+- Adjust tone and content for daily, weekly, or monthly update frequency.
+
+## Output Format
+- Output as bullet point list of markdown-formatted text (no code blocks).
+
+## Remember
+- Summaries must be concise, actionable, and insightful, not just lists of activity.  
+- Always present reasoning (observation and trend recognition) before the actionable suggestion in each bullet.
+- Use markdown formatting for clarity and readability.
+
+**Important: The main objective is to deliver short, customized, future-oriented suggestion lists, not activity logs. Do not exceed 250 words per summary.**
+"""
+
+# ---------- Main Functions ----------
+
 def get_all_data(user_id):
     # Current period rows (full)
     now_rows: List[DataEntry] = session.query(DataEntry) \
@@ -147,14 +168,10 @@ def build_tags_yaml(now_rows, now=None, top_k_similar=10):
     return yaml.safe_dump(out, sort_keys=False)
 
 def get_ai_search(now_rows: List[DataEntry]):
-    sys_prompt = f"""
-    Generate a single line search query based on the determined persona of the user from their saved posts.
-    """
-    
     usr_prompt = build_tags_yaml(now_rows)
     print(f"usr_prompt\n{usr_prompt}")
     
-    summary_text_out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
+    summary_text_out = call_gemini_with_text(sys_prompt = DIGEST_AI_SYSTEM_PROMPT, usr_prompt = usr_prompt)
     # print(f"summary_text_out\n{summary_text_out}")
     
     search_result_out = get_exa_search(text = summary_text_out)
