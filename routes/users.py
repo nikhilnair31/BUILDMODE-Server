@@ -5,7 +5,7 @@ from flask import request, jsonify
 from core.utils.data import _safe_unlink
 from routes import users_bp
 from core.utils.middleware import limiter
-from core.notifications.emails import verify_link_token
+from core.utils.tracking import verify_link_token
 from core.database.database import get_db_session
 from core.database.models import DataEntry, Frequency, StagingEntry, User
 from core.utils.logs import error_response

@@ -3,18 +3,49 @@
 import logging
 import time as pytime
 from pathlib import Path
-from core.utils.decoraters import token_required
-from core.utils.logs import error_response
 from routes import tracking_bp
 from flask import request, abort, make_response, redirect
-from core.notifications.emails import verify_link_token
+from core.utils.logs import error_response
+from core.utils.decoraters import token_required
+from core.database.database import get_db_session
+from core.utils.tracking import make_click_token, verify_link_token
 from core.database.models import DataEntry, LinkInteraction, PostInteraction, User
-from core.database.database import get_db_session  # or your session factory
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 UNSUB_TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_ubsub.html"
+
+@tracking_bp.route("/generate-tracking-links", methods=["POST"])
+@token_required
+def generate_tracking_links(current_user):
+    logger.info(f"Generating tracking links...")
+
+    data = request.get_json(silent=True) or {}
+    logger.info(f"data: {data}")
+    urls = data.get("urls", [])
+    if not isinstance(urls, list) or not urls:
+        return error_response("Missing or invalid 'urls'", 400)
+
+    results = []
+    try:
+        for raw in urls:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
+            
+            token = make_click_token(current_user.id, raw, "android")
+            tracking_url = f"{request.host_url.rstrip('/')}/api/click?t={token}"
+            results.append({
+                "original": raw,
+                "tracking": tracking_url
+            })
+        logger.info(f"results: {results}")
+    except Exception as e:
+        logger.error(f"Error generating tracking links: {e}")
+        return error_response("Failed to generate tracking links", 500)
+
+    return {"links": results}, 200
 
 @tracking_bp.route("/unsubscribe", methods=["GET","POST","HEAD","OPTIONS"])
 def unsubscribe():
@@ -71,11 +102,13 @@ def track_click():
 
     token = request.args.get("t")
     if not token:
+        logger.info(f"Missing token")
         abort(400, "Missing token")
-    # logger.info(f"token: {token}")
+    logger.info(f"token: {token}")
     
     data = verify_link_token(token)
     if not data:
+        logger.info(f"Invalid or expired token")
         abort(400, "Invalid or expired token")
     logger.info(f"data: {data}")
 

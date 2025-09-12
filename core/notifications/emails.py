@@ -8,7 +8,6 @@ from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,24 +26,6 @@ EMAIL_DISPLAY_NAME  = os.getenv("EMAIL_DISPLAY_NAME")
 EMAIL_REGEX         = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 assert SMTP_USER and SMTP_PASS, "Missing SMTP2GO_SMTP_USER/SMTP2GO_SMTP_PASS"
-
-# ---------------------------------- UNSUBS ------------------------------------
-
-def make_click_token(user_id: int, url: str, source: str = "digest") -> str:
-    s = URLSafeTimedSerializer(APP_SECRET)
-    payload = {"uid": user_id, "url": url, "s": source}
-    return s.dumps(payload)
-def make_unsub_token(user_id: int, email: str, source: str) -> str:
-    s = URLSafeTimedSerializer(APP_SECRET)
-    payload = {"uid": user_id, "e": email, "s": source}
-    return s.dumps(payload)
-
-def verify_link_token(token: str, max_age: int = 60*60*24*30):
-    s = URLSafeTimedSerializer(APP_SECRET)
-    try:
-        return s.loads(token, max_age=max_age)
-    except (SignatureExpired, BadSignature):
-        return None
 
 # ---------------------------------- HELPERS ------------------------------------
 
