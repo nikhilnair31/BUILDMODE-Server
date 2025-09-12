@@ -109,14 +109,18 @@ class User(Base):
     created_at = Column(Integer)
     updated_at = Column(Integer)
     tier_id = Column(Integer, ForeignKey('tiers.id'), default=1)
+    
     summary_email_enabled = Column(Boolean, default=False)
     summary_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
     last_summary_sent = Column(Integer, nullable=True)
+    
     digest_email_enabled = Column(Boolean, default=False)
+    digest_frequency_id = Column(Integer, ForeignKey('frequency.id'), default=1)
     last_digest_sent = Column(Integer, nullable=True)
 
     tier = relationship("Tier")
     summary_frequency = relationship("Frequency", foreign_keys=[summary_frequency_id])
+    digest_frequency = relationship("Frequency", foreign_keys=[digest_frequency_id])
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

@@ -13,7 +13,7 @@ from core.utils.decoraters import token_required, get_user_upload_info
 
 logger = logging.getLogger(__name__)
 
-@users_bp.route('/get_saves_left', methods=['GET'])
+@users_bp.route('/saves-left', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
 def get_saves_left(current_user):
@@ -46,20 +46,20 @@ def get_summary_frequency(current_user):
     finally:
         session.close()
 
-@users_bp.route('/digest-enabled', methods=['GET'])
+@users_bp.route('/digest-frequency', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
-def get_digest_enabled(current_user):
+def get_digest_frequency(current_user):
     session = get_db_session()
     try:
         user = session.query(User).filter(User.id == current_user.id).first()
         if not user:
             return error_response("User not found", 404)
-        return {"digest_enabled": user.digest_email_enabled}, 200
-    
+        return {"digest_index": user.digest_frequency_id}, 200
+
     except Exception as e:
-        logger.error(f"Error getting digest enabled for {current_user.id}: {e}")
-        return error_response("Error getting digest enabled", 500)
+        logger.error(f"Error getting digest frequency for {current_user.id}: {e}")
+        return error_response("Error getting digest frequency", 500)
     
     finally:
         session.close()
@@ -194,11 +194,11 @@ def put_summary_frequency(current_user):
     finally:
         session.close()
 
-@users_bp.route('/digest-enabled', methods=['PUT'])
+@users_bp.route('/digest-frequency', methods=['PUT'])
 # @limiter.limit("1 per second")
 @token_required
-def put_digest_enabled(current_user):
-    logger.info(f"Updating digest enabled for user: {current_user.id}")
+def put_digest_frequency(current_user):
+    logger.info(f"Updating digest frequency for: {current_user.id}")
 
     session = get_db_session()
     try:
@@ -209,23 +209,22 @@ def put_digest_enabled(current_user):
             return error_response(e, 404)
 
         data = request.get_json()
-        if not data or "enabled" not in data:
-            return error_response("Missing 'enabled' field", 400)
+        if not data or "frequency" not in data:
+            return error_response("Missing 'frequency' field", 400)
 
-        raw_val = data["enabled"]
-        if isinstance(raw_val, bool):
-            enabled = raw_val
-        elif isinstance(raw_val, str):
-            enabled = raw_val.strip().lower() in ("true", "1", "yes", "y")
-        else:
-            return error_response("Invalid value for 'enabled'", 400)
+        # Look up frequency in DB
+        freq_name = data["frequency"].strip().lower()
+        freq = session.query(Frequency).filter(Frequency.name.ilike(freq_name)).first()
+        if not freq:
+            return error_response(f"Invalid frequency '{freq_name}'", 400)
 
         # Update user
-        user.digest_email_enabled = enabled
+        user.digest_email_enabled = (freq.name != "none")
+        user.digest_frequency_id = freq.id
         session.commit()
 
-        logger.info(f"User {user.id} digest enabled updated to {enabled}")
-        return {"message": f"Digest frequency updated to {enabled}"}, 200
+        logger.info(f"User {user.id} digest frequency updated to {freq.name}")
+        return {"message": f"Digest frequency updated to {freq.name}"}, 200
 
     except Exception as e:
         logger.error(f"Error updating digest enabled for {current_user.id}: {e}")
