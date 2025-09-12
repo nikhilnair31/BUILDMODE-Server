@@ -9,7 +9,8 @@ from werkzeug.security import (
 )
 from sqlalchemy import (
     Boolean,
-    Column, 
+    Column,
+    Date, 
     Integer, 
     String,
     ForeignKey,
@@ -84,6 +85,16 @@ class LinkInteraction(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     digest_url = Column(String)
+    digest_text = Column(String)
+    
+class LinkEntry(Base):
+    __tablename__ = 'links'
+
+    url = Column(String, primary_key=True)
+    text = Column(String)
+    author = Column(String)
+    publishedDate = Column(Date)
+    image = Column(String)
 
 # ---------------------------------- USERS ------------------------------------
 

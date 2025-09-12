@@ -124,18 +124,9 @@ def get_exa_search(text):
             text,
             type = "auto",
             num_results = 10,
-            # start_published_date = "2025-08-29T04:00:00.000Z",
-            # end_published_date = "2025-09-06T03:59:59.999Z",
-            # livecrawl_timeout = 1000,
-            # text = {
-            #     "max_characters": 512
-            # },
-            # context = True,
-            # summary = True
         )
 
-        out = result.results
-        return out
+        return result.results
             
     except Exception as e:
         print(f"Error getting Exa AI search: {e}")

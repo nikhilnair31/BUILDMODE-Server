@@ -1,6 +1,6 @@
 # digest.py
 
-import os, ast, json, logging, re, requests, yaml
+import os, ast, json, logging, re, requests, yaml, argparse
 from linkpreview import link_preview
 from collections import Counter, defaultdict
 from datetime import datetime, time, UTC, timedelta, timezone
@@ -13,7 +13,7 @@ from sqlalchemy import and_, create_engine
 from sqlalchemy.orm import sessionmaker
 from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.database import get_db_session
-from core.database.models import DataEntry, User
+from core.database.models import DataEntry, LinkEntry, User
 from core.notifications.emails import is_valid_email, make_click_token, make_unsub_token, send_email
 
 load_dotenv()
@@ -169,22 +169,22 @@ def build_tags_yaml(now_rows, now=None, top_k_similar=10):
 
 def get_ai_search(now_rows: List[DataEntry]):
     usr_prompt = build_tags_yaml(now_rows)
-    print(f"usr_prompt\n{usr_prompt}")
+    # print(f"usr_prompt\n{usr_prompt}")
     
     summary_text_out = call_gemini_with_text(sys_prompt = DIGEST_AI_SYSTEM_PROMPT, usr_prompt = usr_prompt)
     # print(f"summary_text_out\n{summary_text_out}")
     
-    search_result_out = get_exa_search(text = summary_text_out)
-    # print(f"search_result_out\n{search_result_out}")
+    search_result_list = get_exa_search(text = summary_text_out)
+    # print(f"search_result_list\n{search_result_list}")
 
-    return search_result_out
+    return search_result_list
 
-def build_user_urls(user_id: int, search_results, inline_images: dict) -> str:
-    if not search_results:
+def build_user_urls(user_id: int, search_res_list, inline_images: dict) -> str:
+    if not search_res_list:
         return "<li>No links saved recently</li>"
 
     items = []
-    for idx, res in enumerate(search_results):
+    for idx, res in enumerate(search_res_list):
         url = res.url
         title = res.title
 
@@ -230,11 +230,27 @@ def generate_digest(user_id: int, unsubscribe_url: str):
     replacements = {}
     inline_images = {}
 
-    # AI summary
-    search_res = get_ai_search(now_rows)
+    # AI search
+    search_res_list = get_ai_search(now_rows)
+
+    # Saving AI search data
+    for search_res in search_res_list:
+        print(search_res.url)
+        link_entry = LinkEntry(
+            url=search_res.url.strip(),
+            text=search_res.text.strip() if search_res.text else None,
+            author=search_res.author.strip() if search_res.author else None,
+            publishedDate=(
+                datetime.fromisoformat(search_res.published_date[:10]).date()
+                if search_res.published_date else None
+            ),
+            image=search_res.image.strip() if search_res.image else None,
+        )
+        session.merge(link_entry)
+    session.commit()
 
     # User URLs
-    k, v = build_user_urls(user_id, search_res, inline_images)
+    k, v = build_user_urls(user_id, search_res_list, inline_images)
     replacements[k] = v
 
     # add icon
@@ -317,10 +333,37 @@ def run_once():
 # ---------- Run directly ----------
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force-user", type=int, help="Force send digest to a specific user ID")
+    args = parser.parse_args()
+
     session = get_db_session()
     
     try:
-        run_once()
+        if args.force_user:
+            user = session.query(User).filter_by(id=args.force_user).first()
+            if user and is_valid_email(user.email):
+                unsub_token = make_unsub_token(user.id, user.email, "digest")
+                unsubscribe_url = f"{SERVER_URL}/api/unsubscribe?t={unsub_token}"
+                digest_html, inline_images = generate_digest(user.id, unsubscribe_url)
+
+                if digest_html:
+                    send_email(
+                        user_email=user.email,
+                        subject="Your FORGOR Digest (Manual)",
+                        html_body=digest_html,
+                        inline_images=inline_images,
+                        unsubscribe_url=unsubscribe_url
+                    )
+                    print(f"Forced digest sent to user {user.id} ({user.email})")
+                else:
+                    print("Digest generation failed.")
+            else:
+                print("Invalid or missing user/email.")
+        else:
+            run_once()
     except Exception as e:
         logger.exception(f"Error creating digest: {e}")
         raise
+    finally:
+        session.close()

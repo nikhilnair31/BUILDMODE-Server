@@ -26,5 +26,8 @@ result = exa.search_and_contents(
 
     }
 )
+print("result")
+print(result)
+print("-"*50)
 for idx, item in enumerate(result.results):
     print(f"{idx}: {item.id}")
