@@ -1,13 +1,24 @@
 import os
+from typing import List
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 from core.processing.background import encode_image_to_base64
-from core.utils.config import Config, Content
+from core.utils.config import Config
 
 load_dotenv()
 
-# HexColor = constr(pattern=r"^#(?:[0-9a-fA-F]{6})$")
+class Content(BaseModel):
+    app_name: str
+    engagement_counts: list[str]
+    account_identifiers: list[str]
+    links: list[str]
+    full_ocr: str
+    keywords: List[str] = Field(default_factory=list, max_items=25)
+    accent_colors: list[str]
+    themes: list[str]
+    moods: list[str]
 
 file_path = "/root/projects/BUILDMODE-Server/uploads/0a8e38e2493743538499dfa6726f5417.jpg"
 

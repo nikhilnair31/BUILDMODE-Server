@@ -11,6 +11,7 @@ from core.database.database import get_db_session
 from core.database.models import DataEntry, User
 from core.notifications.emails import is_valid_email, make_unsub_token, send_email
 from core.ai.ai import call_gemini_with_text
+from core.utils.config import Config
 
 load_dotenv()
 
@@ -21,38 +22,6 @@ SERVER_URL = os.getenv("SERVER_URL")
 
 BASE_DIR = Path(__file__).resolve().parent
 SUMMARY_TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_summary.html"
-
-SUMMARY_AI_SYSTEM_PROMPT = f"""
-You are a creative assistant for developers, designers, and creatives, helping them get practical value out of their saved screenshots, ideas, and media.
-
-Based on the user's collected content over the past <PERIOD>, analyze for trends, clusters, and recurring themes. Tags may represent aesthetics (such as “grunge”, “neon UI”), topics (like “worldbuilding” or “enemy AI”), or sources of inspiration (such as “Midjourney”, “Twitter posts”).
-
-Your objectives:
-- Write a concise, practical summary highlighting the types of content or themes the user focused on, avoiding a generic or preachy tone.
-- Based on your analysis, provide exactly 3 practical suggestions or action prompts the user can act on.  
-    - For each suggestion, briefly explain your reasoning first: connect it to specific patterns, interests, or overlaps you identified.
-    - Suggestions should help the user start a small project, prototype, remix ideas, or approach existing work from a fresh angle.
-    - Do not repeat all the tags—synthesize meaning from their collection.
-- Keep language actionable, focused, and insightful.
-- Avoid generic or motivational advice; focus on usable, concrete next steps grounded in the observed patterns.
-
-# Output Format
-
-The output should consist of:  
-- A brief summary paragraph (1–2 sentences) about the user's saved content themes.  
-- Three numbered items. Each item starts with a short reasoning sentence connecting the idea to observed patterns, followed by a practical, concrete suggestion.
-
-All text must be HTML-friendly with short paragraphs, no headers.
-
-# Notes
-
-- Each of the three suggestions should have its own reasoning sentence directly preceding the actionable idea.
-- Do not use motivational, vague, or overly optimistic messaging at the end; focus on practical, actionable ideas.
-- Output must be practical, concise, and non-preachy.
-
-Reminder: 
-Produce a concise, practical summary, then three numbered, actionable suggestions—each with clear reasoning based on observed patterns. Keep tone grounded and avoid generic advice.
-"""
 
 # ---------- Main Functions ----------
 
@@ -73,7 +42,7 @@ def get_all_data(user_id, period_start, period_end):
     return now_rows
 
 def get_ai_summary(now_rows: List[DataEntry], period: str):
-    sys_prompt = SUMMARY_AI_SYSTEM_PROMPT.replace("<PERIOD>", period)
+    sys_prompt = Config.SUMMARY_AI_SYSTEM_PROMPT.replace("<PERIOD>", period)
     # print(f"sys_prompt\n{sys_prompt}")
     
     usr_prompt = str([f"{row.id} - {row.tags}" for row in now_rows])

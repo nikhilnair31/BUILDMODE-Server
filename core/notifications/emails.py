@@ -118,7 +118,7 @@ def send_email_with_zip(user_email: str, subject: str, html_body: str, zip_bytes
     """
     try:
         msg = MIMEMultipart()
-        msg["From"] = FROM_EMAIL
+        msg["From"] = formataddr((EMAIL_DISPLAY_NAME, FROM_EMAIL))
         msg["To"] = user_email
         msg["Subject"] = subject
 

@@ -1,22 +1,12 @@
+# config.py
+
 import os
-from typing import List
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 
 load_dotenv()
 
-class Content(BaseModel):
-    app_name: str
-    engagement_counts: list[str]
-    account_identifiers: list[str]
-    links: list[str]
-    full_ocr: str
-    keywords: List[str] = Field(default_factory=list, max_items=25)
-    accent_colors: list[str]
-    themes: list[str]
-    moods: list[str]
-
 class Config:
+    # Env Var
     APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
     MIA_DB_NAME = os.getenv("MIA_DB_NAME")
@@ -30,8 +20,8 @@ class Config:
     # Database URL
     ENGINE_URL = f'postgresql://postgres:{MIA_DB_PASSWORD}@localhost/{MIA_DB_NAME}'
 
-    # Add other constants here if they are configuration-like
-    IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT = """
+    # Prompts
+    IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT = f"""
         Extract a long and comprehensive list of comma separated keywords to describe the image provided. 
         These keywords will be used for semantic search. 
         
@@ -47,4 +37,53 @@ class Config:
         Moods: color1, color2, etc.
 
         Ignore phone status information.
+    """
+    DIGEST_AI_SYSTEM_PROMPT = f"""
+    Generate concise, actionable, and insightful summary emails for users based on their uploaded screenshots or images, incorporating extracted information such as app name, tags, themes, moods, and OCR text. The summary should:
+
+    - Focus on providing future-oriented insights or practical suggestions, not just reporting what has been submitted.
+    - Be concise enough for high engagement; avoid unnecessary detail or wordiness.
+    - Offer clear “jumping-off points” (e.g., ideas for new projects, potential improvements, or creative suggestions inspired by the image data).
+    - Adjust tone and content for daily, weekly, or monthly update frequency.
+
+    ## Output Format
+    - Output as bullet point list of markdown-formatted text (no code blocks).
+
+    ## Remember
+    - Summaries must be concise, actionable, and insightful, not just lists of activity.  
+    - Always present reasoning (observation and trend recognition) before the actionable suggestion in each bullet.
+    - Use markdown formatting for clarity and readability.
+
+    **Important: The main objective is to deliver short, customized, future-oriented suggestion lists, not activity logs. Do not exceed 250 words per summary.**
+    """
+    SUMMARY_AI_SYSTEM_PROMPT = f"""
+    You are a creative assistant for developers, designers, and creatives, helping them get practical value out of their saved screenshots, ideas, and media.
+
+    Based on the user's collected content over the past <PERIOD>, analyze for trends, clusters, and recurring themes. Tags may represent aesthetics (such as “grunge”, “neon UI”), topics (like “worldbuilding” or “enemy AI”), or sources of inspiration (such as “Midjourney”, “Twitter posts”).
+
+    Your objectives:
+    - Write a concise, practical summary highlighting the types of content or themes the user focused on, avoiding a generic or preachy tone.
+    - Based on your analysis, provide exactly 3 practical suggestions or action prompts the user can act on.  
+        - For each suggestion, briefly explain your reasoning first: connect it to specific patterns, interests, or overlaps you identified.
+        - Suggestions should help the user start a small project, prototype, remix ideas, or approach existing work from a fresh angle.
+        - Do not repeat all the tags—synthesize meaning from their collection.
+    - Keep language actionable, focused, and insightful.
+    - Avoid generic or motivational advice; focus on usable, concrete next steps grounded in the observed patterns.
+
+    # Output Format
+
+    The output should consist of:  
+    - A brief summary paragraph (1–2 sentences) about the user's saved content themes.  
+    - Three numbered items. Each item starts with a short reasoning sentence connecting the idea to observed patterns, followed by a practical, concrete suggestion.
+
+    All text must be HTML-friendly with short paragraphs, no headers.
+
+    # Notes
+
+    - Each of the three suggestions should have its own reasoning sentence directly preceding the actionable idea.
+    - Do not use motivational, vague, or overly optimistic messaging at the end; focus on practical, actionable ideas.
+    - Output must be practical, concise, and non-preachy.
+
+    Reminder: 
+    Produce a concise, practical summary, then three numbered, actionable suggestions—each with clear reasoning based on observed patterns. Keep tone grounded and avoid generic advice.
     """

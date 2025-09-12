@@ -1,17 +1,30 @@
 # ai.py
 
 import os, logging
+from typing import List
 from exa_py import Exa
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-from core.utils.config import Config, Content
+from pydantic import BaseModel, Field
+from core.utils.config import Config
 from core.utils.timing import timed_route
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class Content(BaseModel):
+    app_name: str
+    engagement_counts: list[str]
+    account_identifiers: list[str]
+    links: list[str]
+    full_ocr: str
+    keywords: List[str] = Field(default_factory=list, max_items=25)
+    accent_colors: list[str]
+    themes: list[str]
+    moods: list[str]
 
 # ---------------------------------- GENERATE ------------------------------------
  
