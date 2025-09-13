@@ -9,12 +9,12 @@ from typing import List
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from sqlalchemy import and_, desc
-from sqlalchemy.orm import joinedload
-from core.ai.ai import call_gemini_with_text, get_exa_search
+from sqlalchemy import and_
 from core.database.database import get_db_session
+from core.ai.ai import call_gemini_with_text, get_exa_search
 from core.database.models import DataEntry, LinkEntry, LinkInteraction, User
-from core.notifications.emails import is_valid_email, make_click_token, make_unsub_token, send_email
+from core.utils.tracking import make_click_token, make_unsub_token
+from core.notifications.emails import is_valid_email, send_email
 from core.utils.config import Config
 
 load_dotenv()
@@ -334,7 +334,7 @@ def run_once():
             user.last_digest_sent = now_ts
             session.add(user)
         else:
-            print(f"Summary not due for {user.username} ({user.email})")
+            print(f"Digest not due for {user.username} ({user.email})")
 
     session.commit()
     session.close()

@@ -9,7 +9,8 @@ from sqlalchemy import and_
 from core.content.images import create_pinterest_mosaic
 from core.database.database import get_db_session
 from core.database.models import DataEntry, User
-from core.notifications.emails import is_valid_email, make_unsub_token, send_email
+from core.utils.tracking import make_unsub_token
+from core.notifications.emails import is_valid_email, send_email
 from core.ai.ai import call_gemini_with_text
 from core.utils.config import Config
 
