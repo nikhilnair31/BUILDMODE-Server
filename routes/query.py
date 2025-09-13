@@ -232,6 +232,7 @@ def query(current_user):
             JOIN candidates c ON c.id = d.id
             CROSS JOIN bounds b
             LEFT JOIN color_leg cl ON cl.id = d.id
+            WHERE tags IS NOT NULL
         )
         SELECT
             id,
@@ -247,10 +248,10 @@ def query(current_user):
             color_dist,
             recency,
             (0.35 * text_rank)
-            + (0.38 * (1 - LEAST(distance, 1)))
-            + (0.10 * trgm_sim)
-            + (0.04 * recency)
-            + (0.13 * (CASE WHEN :has_color = TRUE THEN 1 - LEAST(color_dist/100.0,1) ELSE 0 END)) AS hybrid_score
+            + (0.40 * (1 - LEAST(distance, 1)))
+            + (0.15 * trgm_sim)
+            + (0.005 * recency)
+            + (0.10 * (CASE WHEN :has_color = TRUE THEN 1 - LEAST(color_dist/100.0,1) ELSE 0 END)) AS hybrid_score
         FROM scored
         ORDER BY hybrid_score DESC
         LIMIT 1000
@@ -269,8 +270,13 @@ def query(current_user):
     result = session.execute(sql, params).fetchmany(1000)
     logger.info(f"len result: {len(result)}")
     # logger.info(f"result")
-    for i, row in enumerate(result[:10]):
-        logger.info(f"{i}{row}{"-"*60}")
+    for i, row in enumerate(result[:25]):
+        logger.info(f"{i}")
+        logger.info(f"id: {row[0]} | file_path: {row[1]}")
+        logger.info(f"tags: {row[3][:200]}")
+        logger.info(f"converted_date: {row[5]}")
+        logger.info(f"text_rank: {row[6]} | distance: {row[7]} | trgm_sim: {row[8]} | color_dist: {row[9]} | recency: {row[10]} | hybrid_score: {row[11]}")
+        logger.info(f"{"-"*50}")
 
     result_json = {
         "results": [

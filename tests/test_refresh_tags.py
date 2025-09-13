@@ -4,6 +4,7 @@ import os
 import time
 import logging
 import traceback
+import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
@@ -19,17 +20,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(threadName)s: %(message)s")
 logger = logging.getLogger("test_refresh_tags")
 
-engine = create_engine(
-    Config.ENGINE_URL,
-    pool_pre_ping=True,
-)
+engine = create_engine(Config.ENGINE_URL, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 
 def _process_entry(entry_id: int) -> tuple[int, bool, str]:
-    """
-    Work on a single entry in its own session (thread-safe).
-    Returns (entry_id, success, message).
-    """
     session = Session()
     try:
         entry = session.query(DataEntry).get(entry_id)
@@ -56,14 +50,13 @@ def _process_entry(entry_id: int) -> tuple[int, bool, str]:
         # Embedding
         vec = call_vec_api(tags, task_type="RETRIEVAL_DOCUMENT")
 
-        # Thumbnail regenerate (optional – refresh thumbnail if needed)
+        # Thumbnail regenerate
         thumb_path = generate_thumbnail(new_path)
 
         # Update fields
         entry.tags = tags
         entry.tags_vector = vec
         entry.thumbnail_path = thumb_path
-        # entry.timestamp = int(time.time())  # refresh timestamp
 
         session.commit()
         return (entry_id, True, "Updated successfully")
@@ -75,26 +68,18 @@ def _process_entry(entry_id: int) -> tuple[int, bool, str]:
     finally:
         session.close()
 
-def update_latest_tags(limit: int = 10, max_workers: int = 4):
-    """
-    Parallelize per-entry processing using a ThreadPoolExecutor.
-
-    max_workers: tune based on your CPU and external API rate limits.
-                 If your LLM/vector APIs have strict QPS, lower this.
-    """
-    # Single session here ONLY to read the IDs to process.
+def update_latest_tags(limit: int = 10, max_workers: int = 4, replace_blank: bool = False):
     session = Session()
     try:
-        latest_ids = (
-            session.query(DataEntry.id)
-            .filter(DataEntry.tags.contains("</tags>"))
-            .order_by(desc(DataEntry.timestamp))
-            .limit(limit)
-            .all()
-        )
-        entry_ids = [row.id for row in latest_ids]
-        logger.info(f"Found {len(entry_ids)} latest DataEntry records")
+        q = session.query(DataEntry.id)
+        if replace_blank:
+            q = q.filter((DataEntry.tags == None) | (DataEntry.tags == "") | (DataEntry.tags.contains("</tags>")))
+        else:
+            q = q.filter(DataEntry.tags.contains("</tags>"))
 
+        latest_ids = q.order_by(desc(DataEntry.timestamp)).limit(limit).all()
+        entry_ids = [row.id for row in latest_ids]
+        logger.info(f"Found {len(entry_ids)} DataEntry records to update")
     finally:
         session.close()
 
@@ -122,5 +107,13 @@ def update_latest_tags(limit: int = 10, max_workers: int = 4):
     logger.info(f"Done. Success: {successes}, Failures: {failures}, Total: {len(entry_ids)}")
 
 if __name__ == "__main__":
-    # Adjust max_workers to your API/CPU limits (e.g., 2–8).
-    update_latest_tags(limit=150, max_workers=6)
+    parser = argparse.ArgumentParser(description="Refresh tags for DataEntry records")
+    parser.add_argument("-n", "--num", type=int, default=10,
+                        help="Number of posts to update (default: 10)")
+    parser.add_argument("-w", "--workers", type=int, default=4,
+                        help="Number of worker threads (default: 4)")
+    parser.add_argument("--replace-blank", action="store_true",
+                        help="If set, also target entries with blank or NULL tags")
+
+    args = parser.parse_args()
+    update_latest_tags(limit=args.num, max_workers=args.workers, replace_blank=args.replace_blank)

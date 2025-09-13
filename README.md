@@ -6,7 +6,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Add link creation for tracking for posts and account identifiers too
 - [ ] Think of better system to track user interest
     - Maybe a graph
     - Track recency for decay and frequency for interest signals
