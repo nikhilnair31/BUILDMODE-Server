@@ -68,18 +68,28 @@ def _process_entry(entry_id: int) -> tuple[int, bool, str]:
     finally:
         session.close()
 
-def update_latest_tags(limit: int = 10, max_workers: int = 4, replace_blank: bool = False):
+def update_latest_tags(limit: int = 10, max_workers: int = 4,
+                       replace_blank: bool = False, check_text: str = "</tags>",
+                       ids: list[int] | None = None):
     session = Session()
     try:
-        q = session.query(DataEntry.id)
-        if replace_blank:
-            q = q.filter((DataEntry.tags == None) | (DataEntry.tags == "") | (DataEntry.tags.contains("</tags>")))
+        if ids:  # explicit list overrides query
+            entry_ids = ids
+            logger.info(f"Using explicit IDs: {entry_ids}")
         else:
-            q = q.filter(DataEntry.tags.contains("</tags>"))
+            q = session.query(DataEntry.id)
+            if replace_blank:
+                q = q.filter(
+                    (DataEntry.tags == None) |
+                    (DataEntry.tags == "") |
+                    (DataEntry.tags.contains(check_text))
+                )
+            else:
+                q = q.filter(DataEntry.tags.contains(check_text))
 
-        latest_ids = q.order_by(desc(DataEntry.timestamp)).limit(limit).all()
-        entry_ids = [row.id for row in latest_ids]
-        logger.info(f"Found {len(entry_ids)} DataEntry records to update")
+            latest_ids = q.order_by(desc(DataEntry.timestamp)).limit(limit).all()
+            entry_ids = [row.id for row in latest_ids]
+            logger.info(f"Found {len(entry_ids)} DataEntry records to update")
     finally:
         session.close()
 
@@ -114,6 +124,18 @@ if __name__ == "__main__":
                         help="Number of worker threads (default: 4)")
     parser.add_argument("--replace-blank", action="store_true",
                         help="If set, also target entries with blank or NULL tags")
+    parser.add_argument("--check-text", type=str, default="</tags>",
+                        help="Substring to look for in tags (default: '</tags>')")
+    parser.add_argument("--ids", type=str,
+                        help="Comma-separated list of DataEntry IDs to update directly")
 
     args = parser.parse_args()
-    update_latest_tags(limit=args.num, max_workers=args.workers, replace_blank=args.replace_blank)
+    id_list = [int(x) for x in args.ids.split(",")] if args.ids else None
+
+    update_latest_tags(
+        limit=args.num,
+        max_workers=args.workers,
+        replace_blank=args.replace_blank,
+        check_text=args.check_text,
+        ids=id_list
+    )
