@@ -10,7 +10,7 @@ from flask import request, jsonify
 from core.utils.config import Config
 from core.database.database import get_db_session
 from core.database.models import User, DataEntry
-from core.ai.ai import call_vec_api
+from core.ai.ai import call_llm_api, call_vec_api
 from core.utils.logs import error_response
 from core.utils.timing import timed_route
 from core.utils.decoraters import token_required
@@ -116,14 +116,21 @@ def get_similar_to_content(current_user):
 
         sql = text("""
             WITH
+            bounds AS (
+                SELECT 
+                    MIN(timestamp) AS min_ts,
+                    MAX(timestamp) AS max_ts
+                FROM data
+                WHERE user_id = :user_id
+            ),
             -- Vector leg
             vec_leg AS (
                 SELECT d.id
                 FROM data d
                 WHERE 
-                    d.user_id = :userid
-                    AND :vec_query IS NOT NULL
-                    AND (d.tags_vector <=> (:vec_query)::vector) <= 1
+                    d.user_id = :user_id
+                    AND :query_vec IS NOT NULL
+                    AND (d.tags_vector <=> (:query_vec)::vector) <= 1
             ),
             candidates AS (
                 SELECT id FROM vec_leg
@@ -137,12 +144,14 @@ def get_similar_to_content(current_user):
                     d.timestamp,
                     TO_TIMESTAMP(d.timestamp) AS converted_date,
                     CASE 
-                        WHEN :vec_query IS NOT NULL 
-                        THEN d.tags_vector <=> (:vec_query)::vector 
+                        WHEN :query_vec IS NOT NULL 
+                        THEN d.tags_vector <=> (:query_vec)::vector 
                         ELSE 1
                     END AS distance,
                     (d.timestamp - b.min_ts)::float / NULLIF(b.max_ts - b.min_ts, 0) AS recency
-                FROM candidates d
+                FROM data d
+                JOIN candidates c ON c.id = d.id
+                CROSS JOIN bounds b
                 WHERE tags IS NOT NULL
             )
             SELECT
