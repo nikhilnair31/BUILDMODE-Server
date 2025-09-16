@@ -35,13 +35,22 @@ def apply_middleware(app):
         r"/api/*": {
             "origins": [
                 "https://forgor.space",
-            ]
+                "chrome-extension://dpplhhebpjhhmejgfggegelhcgfdailo"
+            ],
+            "allow_headers": [
+                "Content-Type", "Authorization", "X-App-Key", "User-Agent", "X-Timezone"
+            ],
+            "methods": ["GET", "POST", "OPTIONS"]
         }
     })
 
     # Before Request
     @app.before_request
     def restrict_headers():
+        # Always let preflight OPTIONS through
+        if request.method == "OPTIONS":
+            return  # Flask-CORS will handle it
+            
         if request.path.startswith("/api/get_file") or request.path.startswith("/api/get_thumbnail") \
             or request.path.startswith("/api/unsubscribe") or request.path.startswith("/api/click"):
             return
