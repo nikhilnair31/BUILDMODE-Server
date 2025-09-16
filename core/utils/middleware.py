@@ -55,22 +55,13 @@ def apply_middleware(app):
             or request.path.startswith("/api/unsubscribe") or request.path.startswith("/api/click"):
             return
 
-        # logger.info(f'request.path: {request.path}')
-
-        user_agent = request.headers.get("User-Agent", "")
-        api_key = request.headers.get("X-App-Key", None)
-
-        # Allow during development/testing
-        if "python" in user_agent.lower() or "postman" in user_agent.lower():
-            return
-
         # Require custom header
-        if not api_key or api_key != Config.APP_SECRET_KEY:
-            logger.error(f"Rejected request with UA: {user_agent}, API key: {api_key}")
+        user_agent = request.headers.get("User-Agent", "")
+        if not user_agent:
+            logger.error(f"Rejected request with UA: {user_agent}")
             abort(403, description="Forbidden: Invalid or missing headers.")
 
         # logger.info(f'user_agent: {user_agent}')
-        # logger.info(f'api_key: {api_key}')
 
     logger.info("Middleware applied.")
     return limiter # Return limiter for potential future use or configuration

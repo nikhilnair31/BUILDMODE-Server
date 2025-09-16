@@ -19,7 +19,7 @@ SMTP_PORT           = int(os.getenv("SMTP_PORT", "2525"))
 SMTP_SERVER         = os.getenv("SMTP_SERVER")
 SMTP_USER           = os.getenv("SMTP2GO_SMTP_USER")
 SMTP_PASS           = os.getenv("SMTP2GO_SMTP_PASS")
-APP_SECRET          = os.getenv("APP_SECRET_KEY")
+APP_SECRET_KEY      = os.getenv("APP_SECRET_KEY")
 FROM_EMAIL          = os.getenv("FROM_EMAIL")
 EMAIL_DISPLAY_NAME  = os.getenv("EMAIL_DISPLAY_NAME")
 
