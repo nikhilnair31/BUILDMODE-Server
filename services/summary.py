@@ -51,7 +51,7 @@ def get_ai_summary(now_rows: List[DataEntry], period: str):
     
     out = call_gemini_with_text(sys_prompt = sys_prompt, usr_prompt = usr_prompt)
     out_html = markdown.markdown(out)
-    print(f"out_html\n{out_html}")
+    # print(f"out_html\n{out_html}")
     
     return ("[AI_SUMMARY]", out_html)
 

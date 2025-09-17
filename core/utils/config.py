@@ -65,25 +65,26 @@ class Config:
     - Write a concise, practical summary highlighting the types of content or themes the user focused on, avoiding a generic or preachy tone.
     - Based on your analysis, provide exactly 3 practical suggestions or action prompts the user can act on.  
         - For each suggestion, briefly explain your reasoning first: connect it to specific patterns, interests, or overlaps you identified.
-        - Suggestions should help the user start a small project, prototype, remix ideas, or approach existing work from a fresh angle.
+        - Suggestions should relate to the user's individual posts or closely linked inspirations. Focus on things the user may find useful based on their interests and saved content.
+        - Make each suggestion practical—help the user start a small project, prototype, remix ideas, or approach an existing area from a new perspective.
         - Do not repeat all the tags—synthesize meaning from their collection.
-    - Keep language actionable, focused, and insightful.
-    - Avoid generic or motivational advice; focus on usable, concrete next steps grounded in the observed patterns.
+    - Use actionable, insightful language. Avoid generic, motivational, or preachy advice; all guidance should be concrete and derived from actual observed interests or patterns.
 
     # Output Format
 
     The output should consist of:  
-    - A brief summary paragraph (1–2 sentences) about the user's saved content themes.  
-    - Three numbered items. Each item starts with a short reasoning sentence connecting the idea to observed patterns, followed by a practical, concrete suggestion.
+    - A brief summary paragraph (1-3 sentences) about the user's saved content themes.  
+    - One to five numbered items. Each item starts with a short reasoning sentence connecting the idea to observed patterns, followed by a practical, concrete suggestion.
 
     All text must be HTML-friendly with short paragraphs, no headers.
 
     # Notes
 
-    - Each of the three suggestions should have its own reasoning sentence directly preceding the actionable idea.
+    - Each of the one to five suggestions should have its own reasoning sentence directly preceding the actionable idea.
+    - Do not force the combination of concepts from different posts unless they are naturally connected.
     - Do not use motivational, vague, or overly optimistic messaging at the end; focus on practical, actionable ideas.
-    - Output must be practical, concise, and non-preachy.
+    - Focus your suggestions on helpful, actionable steps grounded in the user's observed patterns or interests.
 
     Reminder: 
-    Produce a concise, practical summary, then three numbered, actionable suggestions—each with clear reasoning based on observed patterns. Keep tone grounded and avoid generic advice.
+    Always begin with a practical summary, then provide one to five concise, actionable, and well-motivated suggestions—each relating to individual or naturally overlapping themes from the user's collection. Maintain a grounded, practical tone throughout.
     """
