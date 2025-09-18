@@ -474,7 +474,7 @@ def relevant(current_user):
                 + (0.10 * (CASE WHEN :has_color = TRUE THEN 1 - LEAST(color_dist/100.0,1) ELSE 0 END)) AS hybrid_score
             FROM scored
             ORDER BY hybrid_score DESC
-            LIMIT 1000
+            LIMIT 25
         """)
         params = {
             "userid": userid,
@@ -496,6 +496,7 @@ def relevant(current_user):
                     "file_name": os.path.basename(r[1]),
                     "thumbnail_name": os.path.basename(r[2]) if r[2] else None,
                     "tags": r[3],
+                    "hybrid_score": r[11],
                 }
                 for r in result
             ]
