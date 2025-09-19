@@ -195,6 +195,7 @@ def run_once():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--force-user", type=int, help="Force send summary to a specific user ID")
+    parser.add_argument("--force-email", type=str, help="Force send summary to a specific email")
     args = parser.parse_args()
 
     session = get_db_session()
@@ -220,6 +221,24 @@ if __name__ == "__main__":
                     print("Summary generation failed.")
             else:
                 print("Invalid or missing user/email.")
+        elif args.force_email:
+            user = session.query(User).filter_by(id=1).first()
+            if user and is_valid_email(args.force_email):
+                unsub_token = make_unsub_token(user.id, args.force_email, "summary")
+                unsubscribe_url = f"{SERVER_URL}/api/unsubscribe?t={unsub_token}"
+                summary_content, inline_images = generate_summary(user_id=user.id, unsubscribe_url=unsubscribe_url, period="daily")
+
+                if summary_content:
+                    send_email(
+                        user_email = args.force_email,
+                        subject = f"Your FORGOR Summary",
+                        html_body = summary_content,
+                        inline_images=inline_images,
+                        unsubscribe_url = unsubscribe_url
+                    )
+                    print(f"Forced summary sent to user {user.id} ({args.force_email})")
+                else:
+                    print("Summary generation failed.")
         else:
             run_once()
     except Exception as e:
