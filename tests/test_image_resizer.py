@@ -1,75 +1,43 @@
+# test_image_resizer.py
+
 import os
-from PIL import Image
-from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from core.content.images import compress_image
 
 UPLOADS_DIR = "uploads"
-MAX_SIZE_BYTES = 512000  # 500 KB
+MAX_SIZE_KB = 500
+MAX_WORKERS = 4
 
-def compress_image(input_path, output_path, file_ext):
+def process_file(path, file):
     try:
-        img = Image.open(input_path)
+        size_kb = os.path.getsize(path) / 1024
+        if size_kb <= MAX_SIZE_KB:
+            return f"[-] Skipped: {path} ({size_kb:.1f} KB)"
 
-        # Convert to RGB to avoid mode issues (like RGBA or P)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        
-        img_format = img.format or file_ext.replace('.', '').upper()
-
-        if file_ext.lower() in ['.jpg', '.jpeg']:
-            quality = 85
-            scale = 1.0
-            while scale > 0.1:
-                new_size = (int(img.width * scale), int(img.height * scale))
-                resized_img = img.resize(new_size, Image.LANCZOS)
-                temp_quality = quality
-                while temp_quality > 10:
-                    buffer = BytesIO()
-                    resized_img.save(
-                        buffer,
-                        format=img_format,
-                        quality=temp_quality,
-                        optimize=True,
-                        exif=b''  # Strip metadata
-                    )
-                    if buffer.tell() <= MAX_SIZE_BYTES:
-                        with open(output_path, 'wb') as f:
-                            f.write(buffer.getvalue())
-                        return True
-                    temp_quality -= 5
-                scale -= 0.1
-
-        elif file_ext.lower() == '.png':
-            # Try reducing size
-            scale = 1.0
-            while scale > 0.1:
-                new_size = (int(img.width * scale), int(img.height * scale))
-                resized_img = img.resize(new_size, Image.LANCZOS)
-                buffer = BytesIO()
-                resized_img.save(buffer, format='PNG', optimize=True)
-                if buffer.tell() <= MAX_SIZE_BYTES:
-                    with open(output_path, 'wb') as f:
-                        f.write(buffer.getvalue())
-                    return True
-                scale -= 0.1
-
-        print(f"[!] Could not reduce {input_path} under 500 KB.")
-        return False
+        # Always force compress to JPEG
+        new_path = compress_image(path, max_size_kb=MAX_SIZE_KB)
+        if new_path:
+            new_size_kb = os.path.getsize(new_path) / 1024
+            return f"[+] {path}: {size_kb:.1f} KB -> {new_size_kb:.1f} KB"
+        else:
+            return f"[!] Compression failed: {path}"
     except Exception as e:
-        print(f"[!] Error processing {input_path}: {e}")
-        return False
+        return f"[!] Error processing {path}: {e}"
 
 def resize_large_images():
-    for root, _, files in os.walk(UPLOADS_DIR):
-        for file in files:
-            file_ext = os.path.splitext(file)[1].lower()
-            if file_ext not in ['.jpg', '.jpeg', '.png']:
-                continue
+    tasks = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        for root, _, files in os.walk(UPLOADS_DIR):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
+                    continue
+                path = os.path.join(root, file)
+                tasks.append(executor.submit(process_file, path, file))
 
-            path = os.path.join(root, file)
-            size = os.path.getsize(path)
-            if size > MAX_SIZE_BYTES:
-                print(f"[+] Resizing: {file} ({size} bytes)")
-                compress_image(path, path, file_ext)
+        for future in as_completed(tasks):
+            print(future.result())
 
 if __name__ == "__main__":
     resize_large_images()
+

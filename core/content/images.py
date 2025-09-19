@@ -32,44 +32,50 @@ def compress_image(tempfile, max_size_kb=500):
         if img.mode != "RGB":
             img = img.convert("RGB")
 
-        # --- quick shortcut: if file already small enough ---
-        if os.path.getsize(temp_path) <= max_size_kb * 1024:
-            img.save(final_filepath, format="JPEG", quality=85, optimize=True)
-            logger.info(f"Image already small enough; saved as {final_filepath}")
-            return final_filepath
+        target_bytes = max_size_kb * 1024
 
-        # --- if image is extremely large, downscale once ---
-        max_pixels = 1920 * 1080  # cap size to ~1080p for speed
-        if img.width * img.height > max_pixels:
-            img.thumbnail((1920, 1080), Image.LANCZOS)
-
-        # --- binary search for quality ---
-        low, high = 10, 95
-        best_bytes = None
-
-        while low <= high:
-            mid = (low + high) // 2
-            buffer = io.BytesIO()
-            img.save(buffer, format="JPEG", quality=mid, optimize=True)
-            size_kb = buffer.tell() / 1024
-
-            if size_kb <= max_size_kb:
-                best_bytes = buffer.getvalue()
-                low = mid + 1  # try higher quality
+        # keep scaling down until we succeed
+        scale = 1.0
+        while scale > 0.1:
+            # resize if scale < 1.0
+            if scale < 1.0:
+                new_w = int(img.width * scale)
+                new_h = int(img.height * scale)
+                if new_w < 1 or new_h < 1:
+                    break
+                img_resized = img.resize((new_w, new_h), Image.LANCZOS)
             else:
-                high = mid - 1  # lower quality
+                img_resized = img
 
-        # --- save best result ---
-        if best_bytes:
-            with open(final_filepath, "wb") as f:
-                f.write(best_bytes)
-            logger.info(f"Compressed image saved to {final_filepath} ({len(best_bytes)/1024:.1f} KB)")
-            return final_filepath
-        else:
-            # fallback: save at lowest quality
-            img.save(final_filepath, format="JPEG", quality=10, optimize=True)
-            logger.warning(f"Fallback compression used for {final_filepath}")
-            return final_filepath
+            # binary search JPEG quality
+            low, high = 5, 95
+            best_bytes = None
+            while low <= high:
+                mid = (low + high) // 2
+                buffer = io.BytesIO()
+                img_resized.save(buffer, format="JPEG", quality=mid, optimize=True)
+                size = buffer.tell()
+                if size <= target_bytes:
+                    best_bytes = buffer.getvalue()
+                    low = mid + 1
+                else:
+                    high = mid - 1
+
+            if best_bytes:
+                with open(final_filepath, "wb") as f:
+                    f.write(best_bytes)
+                logger.info(f"Compressed to {len(best_bytes)/1024:.1f} KB at scale {scale:.2f}")
+                return final_filepath
+
+            # if still too large, reduce scale and retry
+            scale *= 0.8
+
+        # fallback: save at lowest quality, smallest scale
+        img.thumbnail((320, 320), Image.LANCZOS)
+        img.save(final_filepath, format="JPEG", quality=5, optimize=True)
+        logger.warning(f"Fallback compression used for {final_filepath}")
+        return final_filepath
+
     except Exception as e:
         logger.error(f"Failed to compress image at {tempfile}: {e}")
         return None
