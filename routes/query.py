@@ -92,6 +92,8 @@ def get_similar_to_file(current_user, filename):
 def query(current_user):
     logger.info(f"Received request to query from user of id: {current_user.id}")
     
+    session = None
+
     try:
         data = request.json
         query_text = data.get("searchText", "").strip()
@@ -299,7 +301,8 @@ def query(current_user):
         traceback.print_exc()
         return error_response(e, 500)
     finally:
-        session.close()
+        if session is not None:
+            session.close()
 
 # ---------------------------------- QUERYING ------------------------------------
 
@@ -309,6 +312,8 @@ def query(current_user):
 @token_required
 def relevant(current_user):
     logger.info(f"Received request for relevant using text from user of id: {current_user.id}")
+    
+    session = None
     
     try:
         data = request.json
@@ -474,7 +479,7 @@ def relevant(current_user):
                 + (0.10 * (CASE WHEN :has_color = TRUE THEN 1 - LEAST(color_dist/100.0,1) ELSE 0 END)) AS hybrid_score
             FROM scored
             ORDER BY hybrid_score DESC
-            LIMIT 25
+            LIMIT 1000
         """)
         params = {
             "userid": userid,
@@ -510,4 +515,5 @@ def relevant(current_user):
         traceback.print_exc()
         return error_response(e, 500)
     finally:
-        session.close()
+        if session is not None:
+            session.close()

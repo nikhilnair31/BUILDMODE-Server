@@ -22,7 +22,7 @@ def generate_tracking_links(current_user):
     logger.info(f"Generating tracking links...")
 
     data = request.get_json(silent=True) or {}
-    logger.info(f"data: {data}")
+    # logger.info(f"data: {data}")
     urls = data.get("urls", [])
     if not isinstance(urls, list) or not urls:
         return error_response("Missing or invalid 'urls'", 400)
@@ -40,7 +40,7 @@ def generate_tracking_links(current_user):
                 "original": raw,
                 "tracking": tracking_url
             })
-        logger.info(f"results: {results}")
+        # logger.info(f"results: {results}")
     except Exception as e:
         logger.error(f"Error generating tracking links: {e}")
         return error_response("Failed to generate tracking links", 500)

@@ -11,6 +11,8 @@ from core.content.parser import timezone_to_start_of_day_ts
 
 logger = logging.getLogger(__name__)
 
+EXEMPT_USERS = ['admin', 'root', 'superuser', 'nik', 'testing']
+
 def token_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -53,27 +55,31 @@ def token_required(f):
 def save_limit_required(f):
     @wraps(f)
     def wrapper(current_user, *args, **kwargs):
-        info, error, status_code, session = get_user_upload_info(current_user)
-        if error:
-            session.close()
-            return error, status_code
+        if current_user.username in EXEMPT_USERS:
+            logger.info("Exempt user detected, skipping save limit check.")
+            return f(current_user, *args, **kwargs)
         
+        info, error_resp, status_code, session = get_user_upload_info(current_user)
         try:
-            if current_user.username in ['admin', 'root', 'superuser', 'nik', 'testing']:
-                logger.info("Admin user detected, skipping save limit check.")
-                return f(current_user, *args, **kwargs)
+            if error_resp:
+                return error_resp, status_code
+            
             if info['uploads_left'] <= 0:
-                e = f"Daily upload limit reached for user {current_user.username} | ({info['tier_name']} - {info['daily_limit']} per day)."
-                logger.warning(e)
-                return error_response(e, 403)
+                msg = (f"Daily upload limit reached for user {current_user.username} "
+                    f"({info['tier_name']} - {info['daily_limit']} per day).")
+                logger.warning(msg)
+                return error_response(msg, 403)
+            
             return f(current_user, *args, **kwargs)
         finally:
             session.close()
+    
     return wrapper
 
 # Placed here instead of in routes.users.py since it's need as a check
 def get_user_upload_info(current_user):
     logger.info(f"Getting upload info for user: {current_user.username}\n")
+    
     session = get_db_session()
     try:
         tier = session.query(Tier).get(current_user.tier_id)
@@ -88,6 +94,10 @@ def get_user_upload_info(current_user):
         uploads_left = max(0, tier.daily_limit - uploads_today)
         reset_in_seconds = int((start_of_day_ts + 86400) - time.time())
 
+        if current_user.username in EXEMPT_USERS:
+            logger.info("Exempt user detected, skipping save limit check.")
+            uploads_left = tier.daily_limit  # effectively unlimited for the day
+
         output = {
             'tier_name': tier.name,
             'daily_limit': tier.daily_limit,
@@ -99,6 +109,7 @@ def get_user_upload_info(current_user):
         # logger.info(f"output: {output}\n")
         
         return output, None, None, session
-    except Exception as e:
+    except Exception as exc:
+        logger.error(f"Error fetching upload info: {exc}")
         session.close()
-        raise e
+        return None, error_response("Internal server error", 500), 500, None
