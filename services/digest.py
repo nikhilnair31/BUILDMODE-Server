@@ -1,21 +1,23 @@
 # digest.py
 
 import os, ast, json, logging, re, requests, yaml, argparse
+
+from typing import List
+from pathlib import Path
+from sqlalchemy import and_, func
+from zoneinfo import ZoneInfo
+from urllib.parse import quote
+from dotenv import load_dotenv
 from linkpreview import link_preview
 from collections import Counter, defaultdict
 from datetime import datetime, time, UTC, timedelta, timezone
-from pathlib import Path
-from typing import List
-from urllib.parse import quote
-from zoneinfo import ZoneInfo
-from dotenv import load_dotenv
-from sqlalchemy import and_
-from core.database.database import get_db_session
-from core.ai.ai import call_gemini_with_text, get_exa_search
-from core.database.models import DataEntry, LinkEntry, LinkInteraction, User
-from core.utils.tracking import make_click_token, make_unsub_token
-from core.notifications.emails import is_valid_email, send_email
+
 from core.utils.config import Config
+from core.database.database import get_db_session
+from core.ai.ai import call_gemini_with_text, get_brave_search, get_exa_search
+from core.notifications.emails import is_valid_email, send_email
+from core.utils.tracking import make_click_token, make_unsub_token
+from core.database.models import DataEntry, LinkEntry, LinkInteraction, User
 
 load_dotenv()
 
@@ -40,7 +42,6 @@ def get_all_data(user_id):
         .order_by(DataEntry.timestamp.desc()) \
         .limit(1000) \
         .all()
-
     # Clicked links + join to LinkEntry for richer text
     recent_links = (
         session.query(LinkInteraction, LinkEntry)
@@ -50,8 +51,7 @@ def get_all_data(user_id):
         .limit(10)
         .all()
     )
-    print(f"recent_links\n{recent_links}")
-
+    
     return now_rows, recent_links
 
 def build_tags_yaml(now_rows, now=None, top_k_similar=10):
@@ -160,32 +160,21 @@ def build_tags_yaml(now_rows, now=None, top_k_similar=10):
     out = {"tags_summary": items[:10]}
     return yaml.safe_dump(out, sort_keys=False)
 
-def get_ai_search(now_rows: List[DataEntry], recent_links: List[LinkInteraction]):
-    usr_prompt = build_tags_yaml(now_rows)
-    # print(f"usr_prompt\n{usr_prompt}")
-
-    # Add clicked link context
-    if recent_links:
-        clicked_summaries = []
-        for li, le in recent_links:
-            content = le.text  # prefer scraped content
-            if content:
-                cleaned = re.sub(r"\s+", " ", content.strip())
-                print(f"Clicked content: {cleaned[:200]}")
-                clicked_summaries.append(f"- {cleaned[:500]}")
-
-        if clicked_summaries:
-            usr_prompt += "\n\n## Recently Clicked Links\n" + "\n".join(clicked_summaries)
-
+def get_ai_search(user_prompt: str, include_domains: list[str] | None):
     summary_text_out = call_gemini_with_text(
         sys_prompt = Config.DIGEST_AI_SYSTEM_PROMPT,
-        usr_prompt = usr_prompt
+        usr_prompt = user_prompt
     )
     # print(f"summary_text_out\n{summary_text_out}")
     
-    search_result_list = get_exa_search(text = summary_text_out)
-    # print(f"search_result_list\n{search_result_list}")
-
+    cleaned_text_out = re.sub(r"^```[a-zA-Z]*\n", "", summary_text_out.strip())
+    cleaned_text_out = re.sub(r"\n```$", "", cleaned_text_out)
+    # print(f"cleaned_text_out\n{cleaned_text_out}")
+    
+    search_result_list = []
+    for q in json.loads(cleaned_text_out):
+        search_result_list.extend(get_brave_search(query=q, inc_domains=include_domains))
+    
     return search_result_list
 
 def build_user_urls(user_id: int, search_res_list, inline_images: dict) -> str:
@@ -194,16 +183,21 @@ def build_user_urls(user_id: int, search_res_list, inline_images: dict) -> str:
 
     items = []
     for idx, res in enumerate(search_res_list):
-        url = res.url
-        title = res.title
+        # Access dictionary keys instead of attributes
+        res_url = res.get('url', '')
+        res_author = res.get('author', '')
+        res_page_age = res.get('page_age', '')
+        res_title = res.get('title', 'No title available')
+        res_description = res.get('description', 'No description available')
+        res_image = res.get('thumbnail', {}).get('src', '') # Brave API stores thumbnail src in 'thumbnail' dict
 
         try:
-            preview = link_preview(url)
+            preview = link_preview(res_url)
             desc = preview.description or ""
-            img_url  = preview.absolute_image or ""
+            img_url  = preview.absolute_image or res_image or ""
         except Exception:
             desc = ""
-            img_url  = ""
+            img_url  = res_image or ""
 
         cid = None
         if img_url:
@@ -216,51 +210,95 @@ def build_user_urls(user_id: int, search_res_list, inline_images: dict) -> str:
                 pass
 
         # tracked redirect
-        link_token = make_click_token(user_id=user_id, url=url, source="digest")
+        link_token = make_click_token(user_id=user_id, url=res_url, source="digest")
         tracked_url = f"{SERVER_URL}/api/click?t={quote(link_token)}"
 
         # Build HTML card for each link
         block = f"""
         <div style="margin-bottom:16px; list-style:none;">
-            <a href="{tracked_url}" style="color:#deff96; font-weight:bold; font-size:15px; text-decoration:none;">{title}</a><br>
+            <a href="{tracked_url}" style="color:#deff96; font-weight:bold; font-size:15px; text-decoration:none;">{res_title}</a><br>
             <span style="color:#bbb; font-size:13px;">{desc}</span><br>
             {f'<img src="cid:{cid}" alt="" style="max-width:100%; margin-top:8px;">' if cid else ""}
         </div>
         """
         items.append(block)
     
-    return ("[USER_URLS]", "\n".join(items))
+    return "\n".join(items)
 
 def generate_digest(user_id: int, unsubscribe_url: str):
     # Get all data + link interactions
     now_rows, recent_links = get_all_data(user_id)
+    # print(f"now_rows:\n{now_rows}")
+    # print(f"recent_links:\n{recent_links}")
+
+    # Building user prompt with rows
+    user_prompt = build_tags_yaml(now_rows)
+    # print(f"user_prompt\n{user_prompt}")
+
+    # Add clicked link context into the prompt
+    if recent_links:
+        clicked_summaries = []
+        for li, le in recent_links:
+            content = le.text
+            if content:
+                cleaned = re.sub(r"\s+", " ", content.strip())
+                clicked_summaries.append(f"- {cleaned[:500]}")
+        if clicked_summaries:
+            user_prompt += "\n\n## Recently Clicked Links\n" + "\n".join(clicked_summaries)
+    # print(f"recent_links\n{recent_links}")
+
+    # Build include_domains list
+    domains = (
+        session.query(
+            func.split_part(
+                func.regexp_replace(LinkInteraction.digest_url, r'^https?://(www\.)?', ''), 
+                '/', 
+                1
+            ).label("domain")
+        )
+        .filter(LinkInteraction.user_id == user_id)
+        .group_by("domain")
+        .all()
+    )
+    include_domains = [d[0] for d in domains if d[0] and "." in d[0]] or None
+    # print(f"include_domains\n{include_domains}")
+
+    # AI search
+    search_res_list = get_ai_search(user_prompt = user_prompt, include_domains = include_domains)
+    # print(f"search_res_list\n{search_res_list}")
+
+    # Saving AI search data
+    for res in search_res_list:
+        # Access dictionary keys instead of attributes
+        res_url = res.get('url', '')
+        res_author = res.get('author', '')
+        res_page_age = res.get('page_age', '')
+        res_title = res.get('title', 'No title available')
+        res_description = res.get('description', 'No description available')
+        res_image = res.get('thumbnail', {}).get('src', '') # Brave API stores thumbnail src in 'thumbnail' dict
+
+        if not res_url:
+            continue # Skip if no URL is present
+
+        link_entry = LinkEntry(
+            url=res_url.strip(),
+            text=res_description.strip() if res_description else None,
+            author=res_author.strip() if res_author else None,
+            publishedDate=(
+                datetime.fromisoformat(res_page_age[:10]).date()
+                if res_page_age else None
+            ),
+            image=res_image.strip() if res_image else None,
+        )
+        session.merge(link_entry)
+    session.commit()
 
     # Collect replacements
     replacements = {}
     inline_images = {}
 
-    # AI search (uploads + clicked links)
-    search_res_list = get_ai_search(now_rows, recent_links)
-
-    # Saving AI search data
-    for search_res in search_res_list:
-        print(search_res.url)
-        link_entry = LinkEntry(
-            url=search_res.url.strip(),
-            text=search_res.text.strip() if search_res.text else None,
-            author=search_res.author.strip() if search_res.author else None,
-            publishedDate=(
-                datetime.fromisoformat(search_res.published_date[:10]).date()
-                if search_res.published_date else None
-            ),
-            image=search_res.image.strip() if search_res.image else None,
-        )
-        session.merge(link_entry)
-    session.commit()
-
     # User URLs
-    k, v = build_user_urls(user_id, search_res_list, inline_images)
-    replacements[k] = v
+    replacements["[USER_URLS]"] = build_user_urls(user_id, search_res_list, inline_images)
 
     # add icon
     with open("assets/icon.png", "rb") as f:

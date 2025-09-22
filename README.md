@@ -6,7 +6,6 @@ This repository contains setup instructions for configuring the **BUILDMODE Serv
 
 ## To-Do
 
-- [ ] Ensure high score for emails using `mail-tester` and private email
 - [ ] Think of better system to track user interest
     - Maybe a graph
     - Track recency for decay and frequency for interest signals

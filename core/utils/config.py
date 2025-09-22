@@ -39,22 +39,11 @@ class Config:
         Ignore phone status information.
     """
     DIGEST_AI_SYSTEM_PROMPT = f"""
-    Generate concise, actionable, and insightful summary emails for users based on their uploaded screenshots or images, incorporating extracted information such as app name, tags, themes, moods, and OCR text. The summary should:
-
-    - Focus on providing future-oriented insights or practical suggestions, not just reporting what has been submitted.
-    - Be concise enough for high engagement; avoid unnecessary detail or wordiness.
-    - Offer clear “jumping-off points” (e.g., ideas for new projects, potential improvements, or creative suggestions inspired by the image data).
-    - Adjust tone and content for daily, weekly, or monthly update frequency.
-
-    ## Output Format
-    - Output as bullet point list of markdown-formatted text (no code blocks).
-
-    ## Remember
-    - Summaries must be concise, actionable, and insightful, not just lists of activity.  
-    - Always present reasoning (observation and trend recognition) before the actionable suggestion in each bullet.
-    - Use markdown formatting for clarity and readability.
-
-    **Important: The main objective is to deliver short, customized, future-oriented suggestion lists, not activity logs. Do not exceed 250 words per summary.**
+    You are a search query generator.
+    - Input: a user prompt describing what they want to find.
+    - Output: 3-5 diverse search queries that would retrieve the most useful results.
+    - Keep queries short, plain, and web-search friendly.
+    - Do not explain, just return the list as JSON array of strings.
     """
     SUMMARY_AI_SYSTEM_PROMPT = f"""
     You are a creative assistant for developers, designers, and creatives, helping them get practical value out of their saved screenshots, ideas, and media.

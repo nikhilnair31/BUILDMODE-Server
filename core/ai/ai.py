@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+import requests
 from core.utils.config import Config
 from core.utils.timing import timed_route
 
@@ -126,21 +127,55 @@ def get_gemini_embedding(text, task_type):
 # ---------------------------------- SEARCH ----------------------------------
 
 @timed_route("get_exa_search")
-def get_exa_search(text):
+def get_exa_search(query: str, inc_domains = None):
     print(f"Getting Exa AI search...")
     
     try:
-        exa = Exa(
-            api_key=os.environ.get("EXA_AI_API_KEY")
-        )
-        result = exa.search_and_contents(
-            text,
-            type = "auto",
-            num_results = 10,
-        )
+        token = os.environ.get("EXA_AI_API_KEY")
+        if not token:
+            raise RuntimeError("EXA_AI_API_KEY not set")
+        
+        exa = Exa(api_key=token)
+        
+        kwargs = {
+            "query": query,
+            "type": "auto",
+            "num_results": 25,
+        }
+        if inc_domains:  # only add if user has interacted
+            kwargs["include_domains"] = inc_domains
+        
+        result = exa.search_and_contents(**kwargs)
 
         return result.results
             
     except Exception as e:
         print(f"Error getting Exa AI search: {e}")
+        return []
+
+@timed_route("get_brave_search")
+def get_brave_search(query: str, inc_domains = None):
+    print(f"Getting Brave AI search...")
+    
+    try:
+        token = os.environ.get("BRAVE_AI_API_KEY")
+        if not token:
+            raise RuntimeError("BRAVE_AI_API_KEY not set")
+
+        params = {"q": query}
+        if inc_domains:
+            params["include_domains"] = ",".join(inc_domains)
+
+        resp = requests.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"Accept": "application/json",
+                     "x-subscription-token": token},
+            params=params,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("web", {}).get("results", [])
+            
+    except Exception as e:
+        print(f"Error getting Brave AI search: {e}")
         return []
