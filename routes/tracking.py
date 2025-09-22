@@ -3,6 +3,7 @@
 import logging
 import time as pytime
 from pathlib import Path
+from urllib.parse import urlparse
 from routes import tracking_bp
 from flask import request, abort, make_response, redirect
 from core.utils.logs import error_response
@@ -16,31 +17,72 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 UNSUB_TEMPLATE_PATH = BASE_DIR.parent / "templates" / "template_ubsub.html"
 
+# List of generic URL paths to filter out
+GENERIC_URL_KEYWORDS = [
+    "about", "faq", "help", "support", "contact",
+    "terms", "tos", "terms-of-service", "privacy",
+    "cookie", "legal", "sitemap", "pricing",
+    "careers", "blog", "news", "events", "press",
+    "resources", "community", "ads-policies",
+    "accessibility", "more-info", "..."
+]
+
 @tracking_bp.route("/generate-tracking-links", methods=["POST"])
 @token_required
 def generate_tracking_links(current_user):
     logger.info(f"Generating tracking links...")
 
     data = request.get_json(silent=True) or {}
-    # logger.info(f"data: {data}")
+    logger.info(f"data: {data}")
     urls = data.get("urls", [])
     if not isinstance(urls, list) or not urls:
         return error_response("Missing or invalid 'urls'", 400)
 
     results = []
     try:
-        for raw in urls:
+        for idx, raw in enumerate(urls):
             raw = (raw or "").strip()
             if not raw:
                 continue
-            
-            token = make_click_token(current_user.id, raw, "android")
+
+            # Skip any incomplete URLs with "..."
+            if "..." in raw:
+                logger.info(f"Skipping incomplete URL: {raw}")
+                continue
+
+            # Parse first
+            parsed = urlparse(raw)
+
+            # If no scheme, add https
+            if not parsed.scheme:
+                test_url = f"https://{raw}"
+                parsed = urlparse(test_url)  # re-parse after adding scheme
+            else:
+                test_url = raw
+
+            # Skip URLs with empty netloc or generic keywords
+            if parsed.netloc == "" or any(keyword.lower() in parsed.path.lower() or keyword.lower() in parsed.netloc.lower()
+                                          for keyword in GENERIC_URL_KEYWORDS):
+                logger.info(f"Skipping generic URL: {raw}")
+                continue
+
+            # Handle usernames / bare domains
+            if raw.startswith("@"):
+                search_url = f"https://www.google.com/search?q={raw}"
+            else:
+                search_url = test_url
+
+            # Generate tracking URL
+            token = make_click_token(current_user.id, search_url, "extension")
             tracking_url = f"{request.host_url.rstrip('/')}/api/click?t={token}"
-            results.append({
-                "original": raw,
+
+            dic = {
+                "original": search_url,
                 "tracking": tracking_url
-            })
-        # logger.info(f"results: {results}")
+            }
+            results.append(dic)
+            logger.info(f"Processed URL: {dic}")
+
     except Exception as e:
         logger.error(f"Error generating tracking links: {e}")
         return error_response("Failed to generate tracking links", 500)

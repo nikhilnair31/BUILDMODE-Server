@@ -44,6 +44,35 @@ def get_saves_left(current_user):
         if session is not None:
             session.close()
 
+# NEW: Endpoint to get user tier information
+@users_bp.route('/user/tier_info', methods=['GET'])
+@token_required
+def get_user_tier_info(current_user):
+    logger.info(f"Received request for user tier info for user: {current_user.id}")
+    session = None
+    try:
+        info, error_response_obj, status_code, session = get_user_upload_info(current_user)
+        
+        if error_response_obj:
+            session.close()
+            return error_response_obj, status_code
+        
+        # Construct the response matching the client's expected structure
+        response_data = {
+            'tier': info.get('tier_name'),
+            'current_saves': info.get('uploads_today'),
+            'max_saves': info.get('daily_limit'),
+            'reset_in_seconds': info.get('reset_in_seconds')
+        }
+        logger.info(f"Sending user tier info: {response_data}")
+        return jsonify(response_data), 200
+    except Exception as e:
+        logger.error(f"Error fetching user tier info: {e}")
+        return error_response("Failed to fetch user tier information", 500)
+    finally:
+        if session is not None:
+            session.close()
+
 @users_bp.route('/summary-frequency', methods=['GET'])
 # @limiter.limit("2 per second")
 @token_required
