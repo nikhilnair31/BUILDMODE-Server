@@ -115,7 +115,7 @@ def query(current_user):
             return error_response(e, 404)
         
         # ---------------- Query Text Processing ----------------
-        query_wo_time_text, time_filter = extract_time_filter(query_text)
+        query_wo_time_text, time_filter = extract_time_filter(query_text, user.timezone)
         logger.info(f"query_wo_time_text: {query_wo_time_text}")
         logger.info(f"time_filter: {time_filter}")
         query_wo_col_text, color_lab = extract_color_filter(query_wo_time_text)
@@ -148,18 +148,22 @@ def query(current_user):
                     d.thumbnail_path,
                     d.tags,
                     d.timestamp,
+                    
                     -- Always calculate these values, but their contribution to hybrid_score
                     -- will be zero if the corresponding search method is not active.
+                    
                     CASE 
                         WHEN :is_fts_active
                         THEN ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query))
                         ELSE 0
                     END AS text_rank,
+
                     CASE 
                         WHEN :is_vec_active
                         THEN d.tags_vector <=> (:vec_query)::vector 
                         ELSE 1.0 -- Max distance for non-active vector search
                     END AS distance,
+
                     CASE 
                         WHEN :is_trgm_active
                         THEN GREATEST(
@@ -168,44 +172,50 @@ def query(current_user):
                         )
                         ELSE 0
                     END AS trgm_sim,
+                    
                     -- Only join data_color if color search is active
                     CASE 
-                        WHEN :is_color_active THEN (
+                        WHEN :is_color_active 
+                        THEN (
                             SELECT MIN(dc.color_vector <-> (:color_lab)::vector)
                             FROM data_color dc
                             WHERE dc.data_id = d.id AND dc.color_vector IS NOT NULL
                         )
                         ELSE NULL
                     END AS color_dist,
+                    
                     -- Recency only if min_ts and max_ts are valid
                     CASE
                         WHEN b.max_ts IS NOT NULL AND b.min_ts IS NOT NULL AND b.max_ts > b.min_ts
                         THEN (d.timestamp - b.min_ts)::float / (b.max_ts - b.min_ts)
                         ELSE 0
                     END AS recency_score,
+                    
                     -- Combine all scores into a hybrid score
-                    (0.35 * (CASE WHEN :is_fts_active THEN ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) ELSE 0 END))
-                    + (0.40 * (CASE WHEN :is_vec_active THEN (1 - (d.tags_vector <=> (:vec_query)::vector)) ELSE 0 END))
-                    + (0.15 * (CASE WHEN :is_trgm_active THEN GREATEST(word_similarity(lower(d.tags), lower(:trgm_query)), similarity(lower(d.tags), lower(:trgm_query))) ELSE 0 END))
-                    + (0.005 * (CASE WHEN b.max_ts IS NOT NULL AND b.min_ts IS NOT NULL AND b.max_ts > b.min_ts THEN (d.timestamp - b.min_ts)::float / (b.max_ts - b.min_ts) ELSE 0 END))
-                    + (0.10 * (CASE WHEN :is_color_active THEN (1 - LEAST((
-                                SELECT MIN(dc.color_vector <-> (:color_lab)::vector)
-                                FROM data_color dc
-                                WHERE dc.data_id = d.id AND dc.color_vector IS NOT NULL
-                            )/100.0, 1)) ELSE 0 END)) AS hybrid_score
+                        (0.35 * (CASE WHEN :is_fts_active THEN ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) ELSE 0 END))
+                    +   (0.40 * (CASE WHEN :is_vec_active THEN (1 - (d.tags_vector <=> (:vec_query)::vector)) ELSE 0 END))
+                    +   (0.15 * (CASE WHEN :is_trgm_active THEN GREATEST(word_similarity(lower(d.tags), lower(:trgm_query)), similarity(lower(d.tags), lower(:trgm_query))) ELSE 0 END))
+                    +   (0.005 * (CASE WHEN b.max_ts IS NOT NULL AND b.min_ts IS NOT NULL AND b.max_ts > b.min_ts THEN (d.timestamp - b.min_ts)::float / (b.max_ts - b.min_ts) ELSE 0 END))
+                    +   (0.10 * (CASE WHEN :is_color_active THEN (1 - LEAST((
+                            SELECT MIN(dc.color_vector <-> (:color_lab)::vector)
+                            FROM data_color dc
+                            WHERE dc.data_id = d.id AND dc.color_vector IS NOT NULL
+                        )/100.0, 1)) ELSE 0 END)) 
+                    AS hybrid_score
                 FROM data d
                 CROSS JOIN bounds b
                 WHERE 
-                    (:start_ts IS NULL OR d.timestamp >= :start_ts)
+                    d.user_id = :userid
+                    AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
                     AND (:end_ts IS NULL OR d.timestamp <= :end_ts)
                     AND (
                         -- allow time-only queries to return rows
                         :is_time_active
+                        OR :is_color_active
                         OR (
                             (:is_fts_active  AND ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) >= 0.05)
                             OR (:is_vec_active AND (d.tags_vector <=> (:vec_query)::vector) < 1.0)
                             OR (:is_trgm_active AND GREATEST(word_similarity(lower(d.tags), lower(:trgm_query)), similarity(lower(d.tags), lower(:trgm_query))) >= 0.01)
-                            OR :is_color_active
                         )
                     )
             )
@@ -221,7 +231,7 @@ def query(current_user):
             LIMIT :result_limit
         """)
         params = {
-            "userid": current_user.id,
+            "userid": user.id,
             "fts_query": struc_query_text,
             "trgm_query": query_wo_col_text,
             "vec_query": vec_query,
@@ -305,7 +315,7 @@ def relevant(current_user):
             return error_response(e, 404)
         
         # ---------------- Query Text Processing ----------------
-        query_wo_time_text, time_filter = extract_time_filter(relevant_text)
+        query_wo_time_text, time_filter = extract_time_filter(relevant_text, user.timezone)
         query_wo_col_text, color_lab = extract_color_filter(query_wo_time_text)
         has_color = color_lab is not None
 
@@ -410,7 +420,7 @@ def relevant(current_user):
             LIMIT :result_limit
         """)
         params = {
-            "userid": current_user.id,
+            "userid": user.id,
             "fts_query": struc_query_text,
             "trgm_query": query_wo_col_text,
             "vec_query": vec_query,
@@ -433,7 +443,7 @@ def relevant(current_user):
                     "file_name": os.path.basename(r[1]),
                     "thumbnail_name": os.path.basename(r[2]) if r[2] else None,
                     "tags": r[3],
-                    "hybrid_score": r[10],
+                    "hybrid_score": r[5],
                 }
                 for r in result
             ]

@@ -1,8 +1,8 @@
 # parser.py
 
 import re, pytz, logging
-from timefhuman import timefhuman, tfhConfig
 from datetime import datetime
+from timefhuman import timefhuman, tfhConfig
 from core.content.images import hex_to_rgb
 from core.utils.timing import timed_route
 
@@ -114,7 +114,7 @@ def sanitize_tsquery(user_input: str) -> str:
     return " ".join(out)
 
 @timed_route("extract_time_filter")
-def extract_time_filter(query_text: str):
+def extract_time_filter(query_text: str, user_tz: str = "UTC"):
     if query_text is None or query_text == "":
         return query_text, None
     
@@ -126,20 +126,31 @@ def extract_time_filter(query_text: str):
 
     # For now just use the first match
     matched_text, span, parsed_dt = matches[0]
-
-    # Remove the matched substring using indices (safer than .replace)
     start_idx, end_idx = span
     cleaned_text = (query_text[:start_idx] + query_text[end_idx:]).strip()
 
-    # Normalize into a (start, end) tuple
+    tz = pytz.timezone(user_tz)
+
     if isinstance(parsed_dt, datetime):
-        start = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        end   = parsed_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-        time_filter = (int(start.timestamp()), int(end.timestamp()))
+        # localize to user tz
+        parsed_local = parsed_dt.astimezone(tz)
+        start_local = parsed_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_local   = parsed_local.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        # convert to UTC epoch
+        time_filter = (
+            int(start_local.astimezone(pytz.UTC).timestamp()),
+            int(end_local.astimezone(pytz.UTC).timestamp())
+        )
+
     elif isinstance(parsed_dt, tuple) and all(isinstance(d, datetime) for d in parsed_dt):
-        time_filter = tuple(int(d.timestamp()) for d in parsed_dt)
+        time_filter = tuple(
+            int(d.astimezone(tz).astimezone(pytz.UTC).timestamp())
+            for d in parsed_dt
+        )
+
     else:
-        time_filter = None  # skip weird outputs for now
+        time_filter = None
 
     return cleaned_text, time_filter
 
