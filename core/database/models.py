@@ -76,7 +76,7 @@ class PostInteraction(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'))
-    data_id = Column(Integer, ForeignKey('data.id'))
+    data_id = Column(Integer, ForeignKey('data.id', ondelete='CASCADE'))
     user_query = Column(String)
 
 class LinkInteraction(Base):

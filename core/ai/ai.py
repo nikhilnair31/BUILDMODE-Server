@@ -31,13 +31,13 @@ class Content(BaseModel):
  
 @timed_route("call_llm_api")
 def call_llm_api(image_b64, sys_prompt=Config.IMAGE_CONTENT_EXTRACTION_SYSTEM_PROMPT, temp=0.2):
-    print(f"LLM...")
+    logger.info(f"Calling LLM func...")
 
     return call_gemini_with_images(image_b64, sys_prompt, temp)
 
 @timed_route("call_gemini_with_images")
 def call_gemini_with_images(image_b64, sys_prompt, temp):
-    print(f"Calling Gemini generate...")
+    logger.info(f"Calling Gemini generate...")
 
     try:
         client = genai.Client(
@@ -62,12 +62,12 @@ def call_gemini_with_images(image_b64, sys_prompt, temp):
         return response.text
             
     except Exception as e:
-        print(f"Error getting Gemini generate: {e}")
+        logger.info(f"Error getting Gemini generate: {e}")
         return ""
 
 @timed_route("call_gemini_with_text")
 def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
-    print(f"Calling Gemini generate...")
+    logger.info(f"Calling Gemini generate...")
 
     try:
         client = genai.Client(
@@ -88,21 +88,21 @@ def call_gemini_with_text(sys_prompt, usr_prompt, temp = 0.2):
         return response.text
             
     except Exception as e:
-        print(f"Error getting Gemini generate: {e}")
+        logger.info(f"Error getting Gemini generate: {e}")
         return ""
 
 # ---------------------------------- EMBEDDINGS ----------------------------------
  
 @timed_route("call_vec_api")
 def call_vec_api(query_text, task_type):
-    print(f"Vec...")
+    logger.info(f"Calling vec embedding func...")
 
     response_json = get_gemini_embedding(query_text, task_type)
     return response_json
 
 @timed_route("get_gemini_embedding")
 def get_gemini_embedding(text, task_type):
-    print(f"Getting Gemini embedding...")
+    logger.info(f"Getting Gemini embedding...")
     
     try:
         client = genai.Client(
@@ -121,14 +121,14 @@ def get_gemini_embedding(text, task_type):
         return embedding
             
     except Exception as e:
-        print(f"Error getting Gemini embedding: {e}")
+        logger.info(f"Error getting Gemini embedding: {e}")
         return []
 
 # ---------------------------------- SEARCH ----------------------------------
 
 @timed_route("get_exa_search")
 def get_exa_search(query: str, inc_domains = None):
-    print(f"Getting Exa AI search...")
+    logger.info(f"Getting Exa AI search...")
     
     try:
         token = os.environ.get("EXA_AI_API_KEY")
@@ -150,12 +150,12 @@ def get_exa_search(query: str, inc_domains = None):
         return result.results
             
     except Exception as e:
-        print(f"Error getting Exa AI search: {e}")
+        logger.info(f"Error getting Exa AI search: {e}")
         return []
 
 @timed_route("get_brave_search")
 def get_brave_search(query: str, inc_domains = None):
-    print(f"Getting Brave AI search...")
+    logger.info(f"Getting Brave AI search...")
     
     try:
         token = os.environ.get("BRAVE_AI_API_KEY")
@@ -177,5 +177,5 @@ def get_brave_search(query: str, inc_domains = None):
         return data.get("web", {}).get("results", [])
             
     except Exception as e:
-        print(f"Error getting Brave AI search: {e}")
+        logger.info(f"Error getting Brave AI search: {e}")
         return []
