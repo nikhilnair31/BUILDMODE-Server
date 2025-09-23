@@ -1,7 +1,6 @@
 # query.py
 
 import os, logging, traceback
-from time import perf_counter
 from sqlalchemy import text
 from core.content.parser import extract_color_filter
 from routes import query_bp
@@ -10,11 +9,11 @@ from flask import request, jsonify
 from core.utils.config import Config
 from core.database.database import get_db_session
 from core.database.models import User, DataEntry
-from core.ai.ai import call_llm_api, call_vec_api
+from core.ai.ai import call_vec_api
 from core.utils.logs import error_response
 from core.utils.timing import timed_route
 from core.utils.decoraters import token_required
-from core.utils.cache import query_cache, get_cache_key
+from core.utils.cache import get_cache_value, store_cache
 from core.content.parser import extract_time_filter, sanitize_tsquery
 
 logger = logging.getLogger(__name__)
@@ -102,10 +101,10 @@ def query(current_user):
             logger.error(e)
             return error_response(e, 400)
         
-        cache_key = get_cache_key(current_user.id, query_text)
-        if cache_key in query_cache:
+        cached = get_cache_value(current_user.id, query_text)
+        if cached:
             logger.info("Serving /api/query from cache.")
-            return jsonify(query_cache[cache_key])
+            return jsonify(cached)
         
         session = get_db_session()
         user = session.query(User).get(current_user.id)
@@ -245,7 +244,7 @@ def query(current_user):
             "is_color_active": is_color_active,
             "result_limit": 100 # Apply limit directly
         }
-        logger.info(f"params: {params}")
+        # logger.info(f"params: {params}")
         result = session.execute(sql, params).fetchall()
 
         logger.info(f"len result: {len(result)}")
@@ -271,7 +270,8 @@ def query(current_user):
             ]
         }
 
-        query_cache[cache_key] = result_json
+        store_cache(current_user.id, query_text, result_json)
+        
         return jsonify(result_json)
     except Exception as e:
         e = f"Error with query: {e}"
@@ -281,8 +281,6 @@ def query(current_user):
     finally:
         if session is not None:
             session.close()
-
-# ---------------------------------- QUERYING ------------------------------------
 
 @query_bp.route('/relevant', methods=['POST'])
 # @limiter.limit("5 per second")
@@ -302,10 +300,10 @@ def relevant(current_user):
             return error_response(e, 400)
         logger.info(f"relevant_text: {relevant_text}")
         
-        cache_key = get_cache_key(current_user.id, relevant_text)
-        if cache_key in query_cache:
-            logger.info("Serving /api/relevant from cache.")
-            return jsonify(query_cache[cache_key])
+        cached = get_cache_value(current_user.id, relevant_text)
+        if cached:
+            logger.info("Serving /api/query from cache.")
+            return jsonify(cached)
         
         session = get_db_session()
         user = session.query(User).get(current_user.id)
@@ -448,8 +446,9 @@ def relevant(current_user):
                 for r in result
             ]
         }
+        
+        store_cache(current_user.id, relevant_text, result_json)
 
-        query_cache[cache_key] = result_json
         return jsonify(result_json)
     except Exception as e:
         e = f"Error with relevant: {e}"

@@ -194,7 +194,9 @@ def delete_file(current_user):
         session.delete(entry)
         session.commit()
 
+        # Clear cache for the user so subsequent queries reflect the deletion
         clear_user_cache(current_user.id)
+        
         return jsonify({'status': 'success', 'message': 'Deleted file successfully'})
     
     except Exception as e:
