@@ -57,15 +57,7 @@ def get_user_tier_info(current_user):
             session.close()
             return error_response_obj, status_code
         
-        # Construct the response matching the client's expected structure
-        response_data = {
-            'tier': info.get('tier_name'),
-            'current_saves': info.get('uploads_today'),
-            'max_saves': info.get('daily_limit'),
-            'reset_in_seconds': info.get('reset_in_seconds')
-        }
-        logger.info(f"Sending user tier info: {response_data}")
-        return jsonify(response_data), 200
+        return jsonify(info), 200
     except Exception as e:
         logger.error(f"Error fetching user tier info: {e}")
         return error_response("Failed to fetch user tier information", 500)
