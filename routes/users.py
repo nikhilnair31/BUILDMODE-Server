@@ -27,23 +27,6 @@ def get_frequencies():
     finally:
         session.close()
 
-@users_bp.route('/saves-left', methods=['GET'])
-# @limiter.limit("2 per second")
-@token_required
-def get_saves_left(current_user):
-    session = None
-    try:
-        info, error_response_obj, status_code, session = get_user_upload_info(current_user)
-        
-        if error_response_obj:
-            session.close()
-            return error_response_obj, status_code
-        
-        return jsonify(info), 200
-    finally:
-        if session is not None:
-            session.close()
-
 # NEW: Endpoint to get user tier information
 @users_bp.route('/user/tier_info', methods=['GET'])
 @token_required

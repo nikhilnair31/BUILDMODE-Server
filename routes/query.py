@@ -458,3 +458,187 @@ def relevant(current_user):
     finally:
         if session is not None:
             session.close()
+
+@query_bp.route('/ideas', methods=['POST'])
+@timed_route("ideas")
+def ideas():
+    logger.info(f"Received request for ideas")
+
+    ACTIONS_API_KEY = os.environ.get("GPT_ACTIONS_API_KEY", "")
+    def require_actions_api_key():
+        key = request.headers.get("X-API-Key", "")
+        if not key or key != ACTIONS_API_KEY:
+            return error_response("Unauthorized", 401)
+        return None
+    unauth = require_actions_api_key()
+    if unauth:
+        return unauth
+    
+    session = None
+    user_id = 1
+    
+    try:
+        data = request.json
+        relevant_text = data.get("topic", "").strip()
+        if not relevant_text:
+            e = "topic required"
+            logger.error(e)
+            return error_response(e, 400)
+        logger.info(f"relevant_text: {relevant_text}")
+        
+        cached = get_cache_value(user_id, relevant_text)
+        if cached:
+            logger.info("Serving /api/ideas from cache.")
+            return jsonify(cached)
+        
+        session = get_db_session()
+        user = session.query(User).get(user_id)
+        if not user:
+            e = f"User ID {user_id} not found"
+            logger.error(e)
+            return error_response(e, 404)
+        
+        # ---------------- Query Text Processing ----------------
+        query_wo_time_text, time_filter = extract_time_filter(relevant_text, user.timezone)
+        query_wo_col_text, color_lab = extract_color_filter(query_wo_time_text)
+        has_color = color_lab is not None
+
+        struc_query_text = sanitize_tsquery(query_wo_col_text) if query_wo_col_text else ""
+        vec_query = cached_call_vec_api(query_wo_col_text) if query_wo_col_text else None
+        
+        # Determine if each search method is active based on query input
+        is_fts_active = bool(struc_query_text)
+        is_vec_active = vec_query is not None and len(vec_query) > 0 # check for non-empty vec
+        is_trgm_active = bool(query_wo_col_text) # Use the raw text for trigram
+        is_time_active = time_filter is not None
+        is_color_active = has_color
+
+        sql = text(f"""
+            WITH bounds AS (
+                SELECT 
+                    MIN(timestamp) AS min_ts,
+                    MAX(timestamp) AS max_ts
+                FROM data
+                WHERE user_id = :userid
+            ),
+            scored_data AS (
+                SELECT 
+                    d.id,
+                    d.file_path,
+                    d.thumbnail_path,
+                    d.tags,
+                    d.timestamp,
+                    -- Always calculate these values, but their contribution to hybrid_score
+                    -- will be zero if the corresponding search method is not active.
+                    CASE 
+                        WHEN :is_fts_active
+                        THEN ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query))
+                        ELSE 0
+                    END AS text_rank,
+                    CASE 
+                        WHEN :is_vec_active
+                        THEN d.tags_vector <=> (:vec_query)::vector 
+                        ELSE 1.0 -- Max distance for non-active vector search
+                    END AS distance,
+                    CASE 
+                        WHEN :is_trgm_active
+                        THEN GREATEST(
+                            word_similarity(lower(d.tags), lower(:trgm_query)),
+                            similarity(lower(d.tags), lower(:trgm_query))
+                        )
+                        ELSE 0
+                    END AS trgm_sim,
+                    -- Only join data_color if color search is active
+                    CASE 
+                        WHEN :is_color_active THEN (
+                            SELECT MIN(dc.color_vector <-> (:color_lab)::vector)
+                            FROM data_color dc
+                            WHERE dc.data_id = d.id AND dc.color_vector IS NOT NULL
+                        )
+                        ELSE NULL
+                    END AS color_dist,
+                    -- Recency only if min_ts and max_ts are valid
+                    CASE
+                        WHEN b.max_ts IS NOT NULL AND b.min_ts IS NOT NULL AND b.max_ts > b.min_ts
+                        THEN (d.timestamp - b.min_ts)::float / (b.max_ts - b.min_ts)
+                        ELSE 0
+                    END AS recency_score,
+                    -- Combine all scores into a hybrid score
+                    (0.35 * (CASE WHEN :is_fts_active THEN ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) ELSE 0 END))
+                    + (0.40 * (CASE WHEN :is_vec_active THEN (1 - (d.tags_vector <=> (:vec_query)::vector)) ELSE 0 END))
+                    + (0.15 * (CASE WHEN :is_trgm_active THEN GREATEST(word_similarity(lower(d.tags), lower(:trgm_query)), similarity(lower(d.tags), lower(:trgm_query))) ELSE 0 END))
+                    + (0.005 * (CASE WHEN b.max_ts IS NOT NULL AND b.min_ts IS NOT NULL AND b.max_ts > b.min_ts THEN (d.timestamp - b.min_ts)::float / (b.max_ts - b.min_ts) ELSE 0 END))
+                    + (0.10 * (CASE WHEN :is_color_active THEN (1 - LEAST((
+                                SELECT MIN(dc.color_vector <-> (:color_lab)::vector)
+                                FROM data_color dc
+                                WHERE dc.data_id = d.id AND dc.color_vector IS NOT NULL
+                            )/100.0, 1)) ELSE 0 END)) AS hybrid_score
+                FROM data d
+                CROSS JOIN bounds b
+                WHERE 
+                    d.user_id = :userid
+                    AND (d.tags IS NOT NULL) -- Always ensure tags exist
+                    -- Apply time filter directly here
+                    AND (:start_ts IS NULL OR d.timestamp >= :start_ts)
+                    AND (:end_ts   IS NULL OR d.timestamp <= :end_ts)
+                    -- Additionally, ensure at least one search method is "active" to prevent full table scan
+                    AND (
+                        (CASE WHEN :is_fts_active THEN ts_rank(to_tsvector('english', d.tags), to_tsquery('english', :fts_query)) ELSE 0 END) >= 0.05
+                        OR
+                        (CASE WHEN :is_vec_active THEN (d.tags_vector <=> (:vec_query)::vector) ELSE 1.0 END) <= 1.0
+                        OR
+                        (CASE WHEN :is_trgm_active THEN GREATEST(word_similarity(lower(d.tags), lower(:trgm_query)), similarity(lower(d.tags), lower(:trgm_query))) ELSE 0 END) >= 0.01
+                        OR
+                        :is_color_active IS TRUE -- if color search is active, the subquery will filter out non-matching colors
+                    )
+            )
+            SELECT
+                id,
+                tags,
+                timestamp,
+                hybrid_score
+            FROM scored_data
+            ORDER BY hybrid_score DESC
+            LIMIT :result_limit
+        """)
+        params = {
+            "userid": user.id,
+            "fts_query": struc_query_text,
+            "trgm_query": query_wo_col_text,
+            "vec_query": vec_query,
+            "start_ts": time_filter[0] if time_filter else None,
+            "end_ts": time_filter[1] if time_filter else None,
+            "has_color": has_color, # Used in CASE statements for score contribution
+            "color_lab": color_lab if color_lab else [0,0,0],
+            "is_fts_active": is_fts_active, # Pass activation flags to SQL
+            "is_vec_active": is_vec_active,
+            "is_trgm_active": is_trgm_active,
+            "is_color_active": is_color_active,
+            "result_limit": 10 # Apply limit directly
+        }
+        result = session.execute(sql, params).fetchall()
+        logger.info(f'result\n{result[:1]}')
+
+        result_json = {
+            "results": [
+                {
+                    "file_id": r[0],
+                    "tags": r[1],
+                    "timestamp": r[2],
+                    "hybrid_score": r[3],
+                }
+                for r in result
+            ]
+        }
+        
+        store_cache(user_id, relevant_text, result_json)
+
+        return jsonify(result_json)
+    except Exception as e:
+        e = f"Error with relevant: {e}"
+        logger.error(e)
+        traceback.print_exc()
+        return error_response(e, 500)
+    finally:
+        if session is not None:
+            session.close()
